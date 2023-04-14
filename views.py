@@ -12,28 +12,7 @@ import requests
 
 @app.route('/', methods=['GET'])
 def renderhomepage():
-    return render_template('index.html')
-
-@app.route('/upload', methods=['POST'])
-def validate():
-    request_file = request.files['file']
-
-    local_filename = os.path.join(app.config['UPLOAD_FOLDER'], str(uuid.uuid4()))
-    request_file.save(local_filename)
-
-
-    response_dict = {}
-    response_dict["stats"] = []
-    num_lines = sum(1 for line in open(local_filename))
-    response_dict["stats"].append({"type":"total_rows", "value":num_lines})
-
-    try:
-        os.remove(local_filename)
-    except:
-        print("Cannot Remove File")
-
-    return json.dumps(response_dict)
-
+    return render_template('homepage.html')
 
 @app.route('/heartbeat', methods=['GET'])
 def testapi():

@@ -1,13 +1,14 @@
 version: '3'
 services:
-  template-dash:
+  redu-gnps2-web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: template-dash
+    container_name: redu-gnps2-web
     volumes:
       - ./logs:/app/logs:rw
       - ./database:/app/database:rw
+      - ./workflows:/app/workflows:rw
     ports:
     - "5000:5000"
     networks:

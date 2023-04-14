@@ -1,0 +1,3 @@
+[submodule "workflows/PublicDataset_ReDU_Metadata_Workflow"]
+	path = workflows/PublicDataset_ReDU_Metadata_Workflow
+	url = https://github.com/Wang-Bioinformatics-Lab/PublicDataset_ReDU_Metadata_Workflow.git
