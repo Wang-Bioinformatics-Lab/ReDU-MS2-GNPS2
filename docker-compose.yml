@@ -10,7 +10,7 @@ services:
       - ./database:/app/database:rw
       - ./workflows:/app/workflows:rw
     ports:
-    - "5000:5000"
+    - "5934:5000"
     networks:
       - default
       - nginx-net
