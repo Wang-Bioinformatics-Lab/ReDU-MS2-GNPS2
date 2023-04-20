@@ -6,5 +6,11 @@ RUN apt-get update && apt-get install -y build-essential
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Installing Nextflow
+RUN conda install -c bioconda nextflow
+
+# Installing mamba
+RUN conda install -c conda-forge mamba
+
 COPY . /app
 WORKDIR /app

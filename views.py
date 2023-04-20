@@ -12,6 +12,8 @@ import requests
 import pandas as pd
 import config
 
+import tasks
+
 @app.route('/', methods=['GET'])
 def renderhomepage():
     metadata_df = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep="\t", dtype=str)
@@ -28,3 +30,12 @@ def testapi():
     return_obj = {}
     return_obj["status"] = "success"
     return json.dumps(return_obj)
+
+
+# manually trigger the task
+@app.route('/update', methods=['GET'])
+def update():
+    # run the task
+    tasks.tasks_generate_metadata.apply_async()
+    
+    return "Queued"

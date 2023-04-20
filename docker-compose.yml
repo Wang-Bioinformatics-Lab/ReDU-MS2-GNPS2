@@ -8,7 +8,7 @@ services:
     volumes:
       - ./logs:/app/logs:rw
       - ./database:/app/database:rw
-      - ./workflows:/app/workflows:rw
+      - ./workflows:/app/workflows:ro
     ports:
     - "5934:5000"
     networks:
@@ -22,6 +22,34 @@ services:
       LETSENCRYPT_HOST: redu.gnps2.org
       LETSENCRYPT_EMAIL: mwang87@gmail.com
 
+  redu-gnps2-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: redu-gnps2-worker
+    volumes:
+      - ./logs:/app/logs:rw
+      - ./workflows:/app/workflows:rw
+    command: /app/run_worker.sh
+    restart: unless-stopped
+    depends_on: 
+      - redu-gnps2-redis
+      - redu-gnps2-rabbitmq
+    networks:
+      - default
+      - nginx-net
+
+  redu-gnps2-rabbitmq:
+    container_name: redu-gnps2-rabbitmq
+    image: rabbitmq
+    networks:
+      - default
+
+  redu-gnps2-redis:
+    container_name: redu-gnps2-redis
+    image: redis
+    networks:
+      - default
 
 networks:
   nginx-net:

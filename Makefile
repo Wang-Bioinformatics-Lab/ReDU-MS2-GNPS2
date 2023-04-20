@@ -10,4 +10,4 @@ server-compose:
 	docker-compose --compatibility up -d
 
 attach:
-	docker exec -i -t gnpslcms-dash /bin/bash
+	docker exec -i -t redu-gnps2-worker /bin/bash

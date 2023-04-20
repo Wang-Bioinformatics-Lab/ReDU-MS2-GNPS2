@@ -7,3 +7,5 @@ tqdm
 Werkzeug
 Flask-Caching
 peewee
+celery==5.0.5
+redis
