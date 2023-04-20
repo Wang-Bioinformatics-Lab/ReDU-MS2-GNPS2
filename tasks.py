@@ -24,6 +24,7 @@ def tasks_generate_metadata():
     return "Up"
 
 
+# TODO: Make this update run every day
 # celery_instance.conf.beat_schedule = {
 #     "cleanup": {
 #         "task": "tasks.run_task",
