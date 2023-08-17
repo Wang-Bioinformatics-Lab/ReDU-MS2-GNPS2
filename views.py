@@ -10,8 +10,9 @@ import json
 import uuid
 import requests
 import pandas as pd
-import config
 
+# Local imports
+import config
 import tasks
 
 @app.route('/', methods=['GET'])
@@ -39,3 +40,8 @@ def update():
     tasks.tasks_generate_metadata.apply_async()
     
     return "Queued"
+
+
+@app.route('/dump', methods=['GET'])
+def dump():
+    return send_file(config.PATH_TO_ORIGINAL_MAPPING_FILE, cache_timeout=1, as_attachment=True, attachment_filename="all_sampleinformation.tsv")
