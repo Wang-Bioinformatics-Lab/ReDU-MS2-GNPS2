@@ -9,5 +9,9 @@ server-compose:
 	docker-compose --compatibility build
 	docker-compose --compatibility up -d
 
+server-compose-production:
+	docker-compose --compatibility build
+	docker-compose --compatibility up -d
+
 attach:
 	docker exec -i -t redu-gnps2-worker /bin/bash
