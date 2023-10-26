@@ -84,7 +84,7 @@ def viewfilesattributeattributeterm(attribute, term):
         #TODO: check for types
         metadata_df = metadata_df[metadata_df[filter_attribute] == filter_term]
 
-    metadata_df = metadata_df[["filename", attribute]]
+    metadata_df = metadata_df[["filename", attribute, "ATTRIBUTE_DatasetAccession"]]
     metadata_df = metadata_df[metadata_df[attribute] == term]
 
     metadata_list = metadata_df.to_dict(orient="records")
@@ -95,6 +95,11 @@ def viewfilesattributeattributeterm(attribute, term):
         output_dict["attribute"] = attribute
         output_dict["attributeterm"] = term
         output_dict["filename"] = metadata_obj["filename"]
+        output_dict["dataset"] = metadata_obj["ATTRIBUTE_DatasetAccession"]
+
+        # Trying to create a USI for the file
+        output_dict["usi"] = "mzspec:" + metadata_obj["ATTRIBUTE_DatasetAccession"] + ":" + str(metadata_obj["filename"]).replace("f.{}/".format(metadata_obj["ATTRIBUTE_DatasetAccession"]), "" )
+
         output_list.append(output_dict)
 
     return json.dumps(output_list)
