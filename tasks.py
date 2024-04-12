@@ -11,7 +11,7 @@ def task_computeheartbeat():
     return "Up"
 
 
-@celery_instance.task(time_limit=3600)
+@celery_instance.task(time_limit=84600)
 def tasks_generate_metadata():
     print("UP", file=sys.stderr, flush=True)
 
