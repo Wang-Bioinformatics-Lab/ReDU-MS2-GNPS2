@@ -98,7 +98,12 @@ def viewfilesattributeattributeterm(attribute, term):
         output_dict["dataset"] = metadata_obj["ATTRIBUTE_DatasetAccession"]
 
         # Trying to create a USI for the file
-        output_dict["usi"] = "mzspec:" + metadata_obj["ATTRIBUTE_DatasetAccession"] + ":" + str(metadata_obj["filename"]).replace("f.{}/".format(metadata_obj["ATTRIBUTE_DatasetAccession"]), "" )
+        modified_filename = str(metadata_obj["filename"])
+        if metadata_obj["ATTRIBUTE_DatasetAccession"].startswith(("ST", "MTBLS")) and modified_filename.startswith("f."):
+            modified_filename = modified_filename[2:]  # Remove "f." from the start
+
+        # Create a USI for the file
+        output_dict["usi"] = "mzspec:" + metadata_obj["ATTRIBUTE_DatasetAccession"] + ":" + modified_filename.replace("f.{}/".format(metadata_obj["ATTRIBUTE_DatasetAccession"]), "")
 
         output_list.append(output_dict)
 
