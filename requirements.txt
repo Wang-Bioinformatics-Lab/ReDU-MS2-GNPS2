@@ -8,4 +8,3 @@ Werkzeug==2.2.2
 Flask-Caching
 peewee
 celery==5.0.5
-redis
