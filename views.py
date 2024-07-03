@@ -34,8 +34,15 @@ def metadataselection():
 
 @app.route('/heartbeat', methods=['GET'])
 def testapi():
+    # Checking when this file was last modified
+    last_modified = os.path.getmtime(config.PATH_TO_ORIGINAL_MAPPING_FILE)
+
+    # Making this PST time and human readable
+    last_modified = pd.to_datetime(last_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
+
     return_obj = {}
     return_obj["status"] = "success"
+    return_obj["lastupdate"] = last_modified
     return json.dumps(return_obj)
 
 
@@ -51,3 +58,5 @@ def update():
 @app.route('/dump', methods=['GET'])
 def dump():
     return send_file(config.PATH_TO_ORIGINAL_MAPPING_FILE, cache_timeout=1, as_attachment=True, attachment_filename="all_sampleinformation.tsv")
+
+
