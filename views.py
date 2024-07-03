@@ -34,6 +34,13 @@ def metadataselection():
 
 @app.route('/heartbeat', methods=['GET'])
 def testapi():
+    
+    return_obj = {}
+    return_obj["status"] = "success"
+    return json.dumps(return_obj)
+
+@app.route('/status.json', methods=['GET'])
+def status():
     # Checking when this file was last modified
     last_modified = os.path.getmtime(config.PATH_TO_ORIGINAL_MAPPING_FILE)
 
@@ -41,8 +48,8 @@ def testapi():
     last_modified = pd.to_datetime(last_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
 
     return_obj = {}
-    return_obj["status"] = "success"
     return_obj["lastupdate"] = str(last_modified)
+
     return json.dumps(return_obj)
 
 
