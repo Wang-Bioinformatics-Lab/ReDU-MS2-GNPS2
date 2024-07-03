@@ -42,7 +42,7 @@ def testapi():
 
     return_obj = {}
     return_obj["status"] = "success"
-    return_obj["lastupdate"] = last_modified
+    return_obj["lastupdate"] = str(last_modified)
     return json.dumps(return_obj)
 
 
