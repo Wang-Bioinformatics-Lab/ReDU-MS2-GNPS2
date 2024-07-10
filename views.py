@@ -55,6 +55,7 @@ def status():
         nextflow_log_data = "No log file found"
 
     log_modified = os.path.getmtime("./workflows/PublicDataset_ReDU_Metadata_Workflow/.nextflow.log")
+    log_modified = pd.to_datetime(log_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
 
     # Trying to read the stdout
     try:
@@ -64,6 +65,7 @@ def status():
         nextflow_stdout_data = "No log file found"
 
     stdout_modified = os.path.getmtime("./workflows/PublicDataset_ReDU_Metadata_Workflow/nextflowstdout.log")
+    stdout_modified = pd.to_datetime(stdout_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
 
     return_obj = {}
     return_obj["lastupdate"] = str(last_modified)
