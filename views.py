@@ -54,6 +54,8 @@ def status():
     except:
         nextflow_log_data = "No log file found"
 
+    log_modified = os.path.getmtime("./workflows/PublicDataset_ReDU_Metadata_Workflow/.nextflow.log")
+
     # Trying to read the stdout
     try:
         with open("./workflows/PublicDataset_ReDU_Metadata_Workflow/nextflowstdout.log", 'r') as file:
@@ -61,11 +63,15 @@ def status():
     except:
         nextflow_stdout_data = "No log file found"
 
+    stdout_modified = os.path.getmtime("./workflows/PublicDataset_ReDU_Metadata_Workflow/nextflowstdout.log")
+
     return_obj = {}
     return_obj["lastupdate"] = str(last_modified)
     return_obj["nextflow"] = {
         "log": nextflow_log_data,
-        "stdout" : nextflow_stdout_data
+        "log_lastupdate" : log_modified,
+        "stdout" : nextflow_stdout_data,
+        "stdout_lastupdate" : stdout_modified
     }
 
     return json.dumps(return_obj)
