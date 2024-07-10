@@ -17,8 +17,7 @@ def tasks_generate_metadata():
 
     cmd = "cd /app/workflows/PublicDataset_ReDU_Metadata_Workflow && \
         nextflow run ./nf_workflow.nf \
-        -c ./nextflow.config \
-        -with-report report.html -with-trace trace.html > nextflowstdout.log"
+        -c ./nextflow.config > nextflowstdout.log"
     
     os.system(cmd)
     
