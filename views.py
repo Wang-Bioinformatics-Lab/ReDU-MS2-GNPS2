@@ -80,7 +80,13 @@ def status():
 
 @app.route('/status.trace', methods=['GET'])
 def status_trace():
-    return send_file("./workflows/PublicDataset_ReDU_Metadata_Workflow/trace.html", cache_timeout=1, as_attachment=True, attachment_filename="trace.html")
+    return send_file("./workflows/PublicDataset_ReDU_Metadata_Workflow/trace.txt", cache_timeout=1)
+
+@app.route('/status.timeline', methods=['GET'])
+def status_timeline():
+    return send_file("./workflows/PublicDataset_ReDU_Metadata_Workflow/timeline.html", cache_timeout=1)
+
+
 
 # manually trigger the task
 @app.route('/update', methods=['GET'])
