@@ -47,8 +47,24 @@ def status():
     # Making this PST time and human readable
     last_modified = pd.to_datetime(last_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
 
+    # Trying to get the text for the nextflow log file
+    try:
+        with open("./workflows/PublicDataset_ReDU_Metadata_Workflow/.nextflow.log", 'r') as file:
+            nextflow_log_data = file.read()
+    except:
+        nextflow_log_data = "No log file found"
+
+    # Trying to read the stdout
+    try:
+        with open("./workflows/PublicDataset_ReDU_Metadata_Workflow/nextflowstdout.log", 'r') as file:
+            nextflow_stdout_data = file.read()
+    except:
+        nextflow_stdout_data = "No log file found"
+
     return_obj = {}
     return_obj["lastupdate"] = str(last_modified)
+    return_obj["nextflowlog"] = nextflow_log_data
+    return_obj["nextflowstdout"] = nextflow_stdout_data
 
     return json.dumps(return_obj)
 
