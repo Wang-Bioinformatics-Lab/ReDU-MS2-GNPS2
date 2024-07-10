@@ -76,6 +76,9 @@ def status():
 
     return json.dumps(return_obj)
 
+@app.route('/status.trace', methods=['GET'])
+def status_trace():
+    return send_file("./workflows/PublicDataset_ReDU_Metadata_Workflow/trace.html", cache_timeout=1, as_attachment=True, attachment_filename="trace.html")
 
 # manually trigger the task
 @app.route('/update', methods=['GET'])
