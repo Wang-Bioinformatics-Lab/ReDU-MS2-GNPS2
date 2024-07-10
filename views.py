@@ -45,7 +45,7 @@ def status():
     last_modified = os.path.getmtime(config.PATH_TO_ORIGINAL_MAPPING_FILE)
 
     # Making this PST time and human readable
-    last_modified = pd.to_datetime(last_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
+    last_modified = str(pd.to_datetime(last_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific'))
 
     # Trying to get the text for the nextflow log file
     try:
@@ -55,7 +55,7 @@ def status():
         nextflow_log_data = "No log file found"
 
     log_modified = os.path.getmtime("./workflows/PublicDataset_ReDU_Metadata_Workflow/.nextflow.log")
-    log_modified = pd.to_datetime(log_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
+    log_modified = str(pd.to_datetime(log_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific'))
 
     # Trying to read the stdout
     try:
@@ -65,10 +65,10 @@ def status():
         nextflow_stdout_data = "No log file found"
 
     stdout_modified = os.path.getmtime("./workflows/PublicDataset_ReDU_Metadata_Workflow/nextflowstdout.log")
-    stdout_modified = pd.to_datetime(stdout_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
+    stdout_modified = str(pd.to_datetime(stdout_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific'))
 
     return_obj = {}
-    return_obj["lastupdate"] = str(last_modified)
+    return_obj["lastupdate"] = last_modified
     return_obj["nextflow"] = {
         "log": nextflow_log_data,
         "log_lastupdate" : log_modified,
