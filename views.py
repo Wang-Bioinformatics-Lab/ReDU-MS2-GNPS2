@@ -63,8 +63,10 @@ def status():
 
     return_obj = {}
     return_obj["lastupdate"] = str(last_modified)
-    return_obj["nextflowlog"] = nextflow_log_data
-    return_obj["nextflowstdout"] = nextflow_stdout_data
+    return_obj["nextflow"] = {
+        "log": nextflow_log_data,
+        "stdout" : nextflow_stdout_data
+    }
 
     return json.dumps(return_obj)
 
