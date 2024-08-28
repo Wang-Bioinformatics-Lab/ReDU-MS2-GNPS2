@@ -42,12 +42,14 @@ services:
   redu-gnps2-rabbitmq:
     container_name: redu-gnps2-rabbitmq
     image: rabbitmq
+    restart: unless-stopped
     networks:
       - default
 
   redu-gnps2-redis:
     container_name: redu-gnps2-redis
     image: redis
+    restart: unless-stopped
     networks:
       - default
 
