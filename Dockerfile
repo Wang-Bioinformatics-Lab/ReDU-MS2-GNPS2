@@ -11,11 +11,14 @@ ENV PATH=$CONDA_DIR/bin:$PATH
 # Adding to bashrc
 RUN echo "export PATH=$CONDA_DIR:$PATH" >> ~/.bashrc
 
+# Forcing version of Python
+RUN mamba create -n python310 python=3.10 -y
+
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN /bin/bash -c 'source activate python310 && pip install -r requirements.txt'
 
 # Installing Nextflow
-RUN conda install -c bioconda nextflow
+RUN mamba install -n python310 -c bioconda nextflow -y
 
 COPY . /app
 WORKDIR /app
