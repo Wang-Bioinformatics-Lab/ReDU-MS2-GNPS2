@@ -1,0 +1,9 @@
+/* custom.css */
+
+.dash-filter > .show-hide {
+    display: none !important;
+}
+
+button[title="Toggle case sensitivity"] {
+    display: none !important;
+}
