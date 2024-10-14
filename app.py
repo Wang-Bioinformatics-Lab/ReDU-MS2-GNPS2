@@ -41,13 +41,16 @@ navbar = dbc.Navbar(
         ),
         dbc.NavbarSimple(
             children=[
-                dbc.NavItem(dbc.NavLink("PanReDU", href="/", active="exact", style={"fontSize": "20px"})),
-                dbc.NavItem(dbc.NavLink("ReDU Dashboard - Documentation", href="/documentation", active="exact", style={"fontSize": "20px"})),
+                dbc.NavItem(dbc.NavLink("Home", href="/", active="exact", style={"fontSize": "20px", "margin-right": "100px"})),
+                dbc.NavItem(dbc.NavLink("Contribute Your Data", href="https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?gid=1001603307#gid=1001603307", target="_blank", external_link=True, active="exact", style={"fontSize": "20px", "margin-right": "100px"})),
+                dbc.NavItem(dbc.NavLink("ReDU Dashboard - Documentation", href="/documentation", active="exact", style={"fontSize": "20px", "margin-right": "100px"})),
+                dbc.NavItem(dbc.NavLink("Download ReDU", href="/download-tsv", id="download-complete-link", style={"fontSize": "20px", "margin-right": "20px"})),
             ],
             color="#e1e8f2",  # Adjusted color to complement the logo
             dark=False,  # Set to False if you choose a light color for better readability
             expand=True,  # This allows the navbar to expand and fill the space
         ),
+        dcc.Download(id="download-complete-tsv"),
     ], fluid=True),
     color="#e1e8f2",  # Adjusted color for the navbar background
     dark=False,
@@ -124,7 +127,9 @@ panredu_layout = dbc.Container(fluid=True, children=[
                         html.A('GNPS', href='https://gnps.ucsd.edu/ProteoSAFe/datasets.jsp#%7B%22query%22%3A%7B%7D%2C%22table_sort_history%22%3A%22createdMillis_dsc%22%2C%22title_input%22%3A%22GNPS%22', target='_blank', style={'fontSize': '18px'}),
                         '.',
                         html.Br(), html.Br(),
-                        'Please contribute your data to grow this resource and bring our field forward!'
+                        'Please ',
+                        html.A('contribute your data', href='https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?usp=sharing', target='_blank', style={'fontSize': '18px'}),
+                        ' to grow this public resource and bring our field forward!'
                     ], className='text-center mb-4', style={'fontSize': '18px'}),
                 ], width=10),
 
@@ -519,6 +524,16 @@ def display_page(pathname):
         return documentation_layout
     else:
         return panredu_layout
+
+
+@app.callback(
+    Output("download-complete-tsv", "data"),
+    Input("download-complete-link", "n_clicks"),
+    prevent_initial_call=True
+)
+def download_df(n_clicks):
+    return dcc.send_data_frame(df.to_csv, "redu_complete.tsv", sep="\t", index=False)
+
 
 # Helper function for parsing filtering expressions
 def split_filter_part(filter_part):
