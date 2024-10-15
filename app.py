@@ -7,16 +7,19 @@ from dash.exceptions import PreventUpdate
 import pandas as pd
 import re
 import math
+import clipboard
+import time
 
 # Load the data
-df = pd.read_csv('C:/Users/elabi/Downloads/all_sampleinformation.tsv', sep='\t')
+df_redu = pd.read_csv('C:/Users/elabi/Downloads/all_sampleinformation.tsv', sep='\t')
+df_redu_filtered = df_redu.copy()
 
 
 # Define column configurations
 default_columns = ["SampleType", "SampleTypeSub1", "NCBITaxonomy", "UBERONBodyPartName", "MassSpectrometer", "USI"]
 
 # All columns in desired order
-all_columns_ordered = default_columns + [col for col in df.columns if col not in default_columns]
+all_columns_ordered = default_columns + [col for col in df_redu.columns if col not in default_columns]
 
 # Initialize the Dash app with Bootstrap theme
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -65,35 +68,35 @@ panredu_layout = dbc.Container(fluid=True, children=[
             dbc.Card([
                 dbc.CardHeader(html.H2('Summary Statistics')),
                 dbc.CardBody([
-                    html.H5(f"Total Files: {len(df):,}"),
-                    html.H5(f"Unique Datasets: {df['ATTRIBUTE_DatasetAccession'].nunique()}"),
+                    html.H5(f"Total Files: {len(df_redu):,}"),
+                    html.H5(f"Unique Datasets: {df_redu['ATTRIBUTE_DatasetAccession'].nunique()}"),
                     html.H5('Files by DataSource:'),
                     html.Ul([html.Li(f"{key}: {value}") for key, value in
-                             df['DataSource'].value_counts().to_dict().items()]),
+                             df_redu['DataSource'].value_counts().to_dict().items()]),
                     html.H5('Represented Taxonomies:'),
-                    html.P(f"Total Unique Taxonomies: {df['NCBITaxonomy'].nunique() - 1}"),
+                    html.P(f"Total Unique Taxonomies: {df_redu['NCBITaxonomy'].nunique() - 1}"),
                     html.Ul([
                         html.Li(f"{division}: {taxonomies}")
-                        for division, taxonomies in df[df['NCBIDivision'].notna()]
+                        for division, taxonomies in df_redu[df_redu['NCBIDivision'].notna()]
                         .groupby('NCBIDivision')['NCBITaxonomy']
                         .nunique()
                         .items()
                         if taxonomies >= 10
                     ]),
                     html.H5('Human/Mouse data:'),
-                    html.P(f"Homo Sapiens: {len(df[df['NCBITaxonomy'] == '9606|Homo sapiens'])}"),
+                    html.P(f"Homo Sapiens: {len(df_redu[df_redu['NCBITaxonomy'] == '9606|Homo sapiens'])}"),
                     html.Ul([
                         html.Li(
-                            f"Unique Bodyparts: {df.loc[df['NCBITaxonomy'] == '9606|Homo sapiens', 'UBERONBodyPartName'].nunique() - 1}"),
+                            f"Unique Bodyparts: {df_redu.loc[df_redu['NCBITaxonomy'] == '9606|Homo sapiens', 'UBERONBodyPartName'].nunique() - 1}"),
                         html.Li(
-                            f"Unique Diseases: {df.loc[df['NCBITaxonomy'] == '9606|Homo sapiens', 'DOIDCommonName'].nunique() - 1}")
+                            f"Unique Diseases: {df_redu.loc[df_redu['NCBITaxonomy'] == '9606|Homo sapiens', 'DOIDCommonName'].nunique() - 1}")
                     ]),
-                    html.P(f"Mus Musculus: {len(df[df['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus'])])}"),
+                    html.P(f"Mus Musculus: {len(df_redu[df_redu['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus'])])}"),
                     html.Ul([
                         html.Li(
-                            f"Unique Bodyparts: {df.loc[df['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus']), 'UBERONBodyPartName'].nunique() - 1}"),
+                            f"Unique Bodyparts: {df_redu.loc[df_redu['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus']), 'UBERONBodyPartName'].nunique() - 1}"),
                         html.Li(
-                            f"Unique Diseases: {df.loc[df['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus']), 'DOIDCommonName'].nunique() - 1}")
+                            f"Unique Diseases: {df_redu.loc[df_redu['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus']), 'DOIDCommonName'].nunique() - 1}")
                     ]),
                 ]),
             ], className='mb-4'),
@@ -151,6 +154,9 @@ panredu_layout = dbc.Container(fluid=True, children=[
                     dbc.Col(dbc.Button("Subset Table to Files Matching MS2", id="open-fasstmasst-button", color="info",
                                        className="mb-4"),
                             width="auto"),
+                    dbc.Col(dbc.Button("Subset Table to mz(X)ML files", id="subset-mzml-button", color="info",
+                                       className="mb-4"),
+                            width="auto"),
                     dbc.Col(dbc.Button("Reset All Filters", id="reset-filters-button", color="warning", className="mb-4"),
                             width="auto"),
                     dbc.Col(dbc.Button("Download Filtered Table", id="download-button", color="primary",
@@ -193,8 +199,11 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 page_current=0,
                 page_size=10,
                 page_action='custom',
+                #page_action='custom',
                 filter_action='custom',
-                filter_query='{USI} contains ".(mzML|mzXML)$"',
+                #filter_action='native',
+                #filter_query='{USI} contains ".(mzML|mzXML)$"',
+                filter_options={"placeholder_text": "Filter column..."},
                 sort_action='custom',
                 sort_mode='multi',
                 sort_by=[],
@@ -207,16 +216,18 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 },
                 cell_selectable=False,
             ),
-            html.Div(id='rows-remaining', className='mt-2'),
-            html.Div(id='page-count', className='mt-2'),
-            html.Div(id='dummy-div', style={'display': 'none'}),
+            dbc.Row([
+                html.Div(id='page-count', className='mt-2'),  # Page count div
+                html.Div(id='rows-remaining', className='mt-2'),  # Rows remaining div
+                html.Div(id='dummy-div', style={'display': 'none'})  # Any additional elements if needed
+            ], justify="end", className="text-end"),
 
 
             # Additional Components if Needed
             dcc.Download(id="download-dataframe-csv"),
             dcc.Clipboard(id="clipboard", content='', style={'display': 'none'}),
             dcc.Store(id="clipboard-content-store"),
-            dcc.Store(id='filtered-data-store', storage_type='memory'),
+            dcc.Store(id='update-happened', storage_type='memory'),
 
             # Modal for settings popup
             dbc.Modal(
@@ -275,220 +286,6 @@ documentation_layout = dbc.Container(fluid=True, children=[
         dcc.Markdown('''
 **Welcome to the Dataset Investigation Dashboard!**
 
-Use this dashboard to explore and filter datasets based on various attributes. Here's how you can interact with the dashboard:
-
----
-
-### **Filtering Data**
-
-You can filter the dataset using the text boxes at the top of each column in the data table. Below are the available operators and how to use them:
-
-#### **Available Operators**
-
-- **`=` or `eq`**: Equals
-- **`!=` or `ne`**: Not equal to
-- **`<` or `lt`**: Less than
-- **`<=` or `le`**: Less than or equal to
-- **`>` or `gt`**: Greater than
-- **`>=` or `ge`**: Greater than or equal to
-- **`contains`**: Contains the specified substring (case-insensitive)
-- **`scontains`**: Contains the specified substring (case-sensitive)
-- **`sw`**: String starts with the specified substring
-- **`ew`**: String ends with the specified substring
-- **`in`**: Value is in the list of specified values
-- **`nin`**: Value is not in the list of specified values
-- **`datestartswith`**: Date starts with the specified string (useful for date columns)
-
-#### **How to Use Filters**
-
-- **Basic Syntax**: `Operator "Value"`
-  - **Example**: To filter for samples containing "Homo sapiens" in the `NCBITaxonomy` column, enter:
-    ```
-    contains "Homo sapiens"
-    ```
-
-- **Multiple Conditions**: You can combine multiple conditions using `&&` for logical AND.
-  - **Example**: To filter for human blood samples, you can enter in the `NCBITaxonomy` column:
-    ```
-    contains "Homo sapiens"
-    ```
-    and in the `UBERONBodyPartName` column:
-    ```
-    contains "blood"
-    ```
-
-#### **Operator Examples**
-
-1. **Equality and Inequality**
-
-   - **Equals** (`=` or `eq`):
-     ```
-     = "Plant"
-     ```
-     Filters rows where the column value is exactly "Plant".
-
-   - **Not Equal** (`!=` or `ne`):
-     ```
-     != "Plant"
-     ```
-     Excludes rows where the column value is "Plant".
-
-2. **Numeric Comparisons**
-
-   - **Greater Than** (`>` or `gt`):
-     ```
-     > 100
-     ```
-     Filters rows where the column value is greater than 100.
-
-   - **Less Than or Equal To** (`<=` or `le`):
-     ```
-     <= 50
-     ```
-     Filters rows where the column value is less than or equal to 50.
-
-3. **String Matching**
-
-   - **Contains** (`contains`):
-     ```
-     contains "Orbitrap"
-     ```
-     Filters rows where the column value contains "Orbitrap" (case-insensitive).
-
-   - **Case-Sensitive Contains** (`scontains`):
-     ```
-     scontains "Blood"
-     ```
-     Filters rows where the column value contains "Blood" with exact casing.
-
-   - **Starts With** (`sw`):
-     ```
-     sw "Rat"
-     ```
-     Filters rows where the column value starts with "Rat".
-
-   - **Ends With** (`ew`):
-     ```
-     ew "sample"
-     ```
-     Filters rows where the column value ends with "sample".
-
-4. **List Membership**
-
-   - **In List** (`in`):
-     ```
-     in "Blood, Plasma, Serum"
-     ```
-     Filters rows where the column value is "Blood", "Plasma", or "Serum".
-
-   - **Not In List** (`nin`):
-     ```
-     nin "Urine, Saliva"
-     ```
-     Excludes rows where the column value is "Urine" or "Saliva".
-
-5. **Regular Expressions**
-
-   - **Complex Patterns**:
-     ```
-     contains "(Orbitrap|Exactive|Exploris|Astral)"
-     ```
-     Filters rows where the column value matches any of the specified terms. Use parentheses `()` for grouping and the pipe `|` as an OR operator in regex.
-
----
-
-### **Interacting with the Dashboard**
-
-- **Apply Filters**:
-
-  - **Per-Column Filters**: Use the text boxes at the top of each column to apply filters specific to that column.
-  - **Example Filters**: Click on the example links provided to quickly apply common filters. Note that applying an example filter will reset any existing filters.
-
-- **Reset Filters**:
-
-  - Click **"Reset Filters"** to clear all applied filters and start a new search.
-
-- **Download and Copy**:
-
-  - **Download Filtered Dataset**: Click this button to download the currently filtered dataset as a CSV file.
-  - **Copy USIs to Clipboard**: Click this button to copy the USIs from the filtered dataset to your clipboard.
-
----
-
-### **Examples**
-
-1. **Filter for Human Samples**
-
-   - In the `NCBITaxonomy` column filter box, enter:
-     ```
-     contains "Homo sapiens"
-     ```
-
-2. **Filter for Plant Samples**
-
-   - In the `SampleType` column filter box, enter:
-     ```
-     contains "Plant"
-     ```
-
-3. **Filter for Specific Mass Spectrometers**
-
-   - In the `MassSpectrometer` column filter box, enter:
-     ```
-     contains "(Orbitrap|Exactive|Exploris|Astral)"
-     ```
-     This uses a regex pattern to match any of the specified mass spectrometers.
-
-4. **Filter for Complex Conditions**
-
-   - To filter for entries in `NCBITaxonomy` that are either "Homo" or "Mus" but not "musculus", enter:
-     ```
-     contains "(Homo|Mus)(?!.*musculus)"
-     ```
-     This uses a negative lookahead in regex to exclude "musculus".
-
-5. **Filter for Blood Samples from Rattus norvegicus**
-
-   - In the `UBERONBodyPartName` column filter box, enter:
-     ```
-     contains "blood"
-     ```
-   - In the `NCBITaxonomy` column filter box, enter:
-     ```
-     contains "Rattus norvegicus"
-     ```
-
----
-
-### **Additional Tips**
-
-- **Case Sensitivity**:
-
-  - By default, `contains` is case-insensitive.
-  - Use `scontains` for case-sensitive searches.
-
-- **Quoting Values**:
-
-  - Enclose string values in double quotes `"..."`.
-  - For numeric values, quotes are optional.
-
-- **Combining Filters**:
-
-  - Apply filters in multiple columns to narrow down your search.
-  - Filters in different columns are combined using logical AND.
-
-- **Handling Special Characters**:
-
-  - If your search value includes special characters (like parentheses, asterisks, etc.), you may need to use regex patterns or escape them.
-
-- **Understanding Filter Logic**:
-
-  - The dashboard processes filters using the specified operators.
-  - Incorrect syntax may result in no data being displayed.
-
----
-
-If you have any questions or need assistance with filtering, please refer to this guide or contact support.
 
 Happy exploring!
         ''')
@@ -504,35 +301,6 @@ app.layout = html.Div([
 ])
 
 
-# Callbacks for opening and closing the modal
-@app.callback(
-    Output("fasstmasst-modal", "is_open"),
-    [Input("open-fasstmasst-button", "n_clicks"), Input("submit-fasstmasst", "n_clicks")],
-    [State("fasstmasst-modal", "is_open")],
-)
-def toggle_modal(open_click, submit_click, is_open):
-    if open_click or submit_click:
-        return not is_open
-    return is_open
-
-
-# Callback to render the appropriate page
-@app.callback(Output('page-content', 'children'),
-              [Input('url', 'pathname')])
-def display_page(pathname):
-    if pathname == '/documentation':
-        return documentation_layout
-    else:
-        return panredu_layout
-
-
-@app.callback(
-    Output("download-complete-tsv", "data"),
-    Input("download-complete-link", "n_clicks"),
-    prevent_initial_call=True
-)
-def download_df(n_clicks):
-    return dcc.send_data_frame(df.to_csv, "redu_complete.tsv", sep="\t", index=False)
 
 
 # Helper function for parsing filtering expressions
@@ -581,11 +349,11 @@ def update_data_table_filter_query(reset_clicks, human_clicks, plant_clicks, orb
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
+
     # If Reset Filters is clicked
     if triggered_id == 'reset-filters-button':
         # Clear the filter query
-        print("Reset filters button clicked")
-        return '', 'No filters applied.'
+        return ''
 
     # Logic for example filters follows...
     if triggered_id == 'example-filter-human':
@@ -604,13 +372,14 @@ def update_data_table_filter_query(reset_clicks, human_clicks, plant_clicks, orb
     print(f"Applying new filter: {new_condition}")
     return new_condition
 
-
 @app.callback(
-    Output("filtered-data-store", "data"),
+    Output("update-happened", "data"),
+    Output("data-table", "page_current"),
     Input("url", "pathname"),
     Input("data-table", "filter_query"),
+    Input('reset-filters-button', 'n_clicks'),
     Input("submit-fasstmasst", "n_clicks"),
-    State("filtered-data-store", "data"),
+    Input('subset-mzml-button', 'n_clicks'),
     State("usi", "value"),
     State("min-cosine", "value"),
     State("min-matching-peaks", "value"),
@@ -618,52 +387,60 @@ def update_data_table_filter_query(reset_clicks, human_clicks, plant_clicks, orb
     State("precursor-tolerance", "value"),
     prevent_initial_call=False
 )
-def update_filtered_data_store(pathname, filter_query, submit_n_clicks, current_data, usi, min_cos, min_fragments,
+def update_filtered_data_store(pathname, filter_query, reset_button, submit_n_clicks, mzml_button, usi, min_cos, min_fragments,
                                fragment_mz_tol, precursor_mz_tol):
+
+    global df_redu
+    global df_redu_filtered
+
     ctx = callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     # Initialize dff with full dataset for fallback
-    dff = df.copy() if not current_data else pd.DataFrame(current_data)
+    if triggered_id == 'reset-filters-button':
+        df_redu_filtered = df_redu.copy()
+    else:
+        df_redu_filtered = df_redu_filtered
 
-    # Initial load with full dataset
-    if triggered_id == "url":
-        print("Loading full dataset on initial load.")
-        dff = df.copy()
+    if triggered_id == "subset-mzml-button":
+        df_redu_filtered = df_redu_filtered[df_redu_filtered['USI'].astype(str).str.contains('.(mzML|mzXML)$', case=True, na=False, regex=True)]
 
-    # Filter via data-table filter_query
-    elif triggered_id == "data-table":
-        if filter_query:
-            filtering_expressions = filter_query.split(' && ')
-            for filter_part in filtering_expressions:
-                col_name, operator, value = split_filter_part(filter_part)
-                if operator and col_name in dff.columns:
-                    # Apply the operator logic
-                    if operator == 'contains':
-                        dff = dff[dff[col_name].astype(str).str.contains(value, case=False, na=False, regex=True)]
-                    elif operator == 'scontains':
-                        dff = dff[dff[col_name].astype(str).str.contains(value, case=True, na=False, regex=True)]
-                    elif operator == '=':
-                        dff = dff[dff[col_name] == value]
-                    elif operator == '!=':
-                        dff = dff[dff[col_name] != value]
-                    elif operator == '<':
-                        dff = dff[pd.to_numeric(dff[col_name], errors='coerce') < float(value)]
-                    elif operator == '<=':
-                        dff = dff[pd.to_numeric(dff[col_name], errors='coerce') <= float(value)]
-                    elif operator == '>':
-                        dff = dff[pd.to_numeric(dff[col_name], errors='coerce') > float(value)]
-                    elif operator == '>=':
-                        dff = dff[pd.to_numeric(dff[col_name], errors='coerce') >= float(value)]
-                    elif operator == 'in':
-                        values = [v.strip() for v in value.split(',')]
-                        dff = dff[dff[col_name].isin(values)]
-                    elif operator == 'nin':
-                        values = [v.strip() for v in value.split(',')]
-                        dff = dff[~dff[col_name].isin(values)]
-                print(f"Filtered {col_name} with {operator} {value}. Rows remaining: {len(dff)}")
-        else:
-            print("No filter applied in data-table; displaying full data set.")
+
+    #Filter via data-table filter_query
+    elif triggered_id == "data-table" and filter_query:
+
+        filtering_expressions = filter_query.split(' && ')
+        for filter_part in filtering_expressions:
+            col_name, operator, value = split_filter_part(filter_part)
+            if operator and col_name in df_redu_filtered.columns:
+                # Apply the operator logic
+
+                if value == "":  # Check for empty string to clear filter
+                    continue  # Skip this filter, effectively removing it
+
+                if operator == 'contains':
+                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name].astype(str).str.contains(value, case=False, na=False, regex=True)]
+                elif operator == 'scontains':
+                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name].astype(str).str.contains(value, case=True, na=False, regex=True)]
+                elif operator == '=':
+                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name] == value]
+                elif operator == '!=':
+                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name] != value]
+                elif operator == '<':
+                    df_redu_filtered = df_redu_filtered[pd.to_numeric(df_redu_filtered[col_name], errors='coerce') < float(value)]
+                elif operator == '<=':
+                    df_redu_filtered = df_redu_filtered[pd.to_numeric(df_redu_filtered[col_name], errors='coerce') <= float(value)]
+                elif operator == '>':
+                    df_redu_filtered = df_redu_filtered[pd.to_numeric(df_redu_filtered[col_name], errors='coerce') > float(value)]
+                elif operator == '>=':
+                    df_redu_filtered = df_redu_filtered[pd.to_numeric(df_redu_filtered[col_name], errors='coerce') >= float(value)]
+                elif operator == 'in':
+                    values = [v.strip() for v in value.split(',')]
+                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name].isin(values)]
+                elif operator == 'nin':
+                    values = [v.strip() for v in value.split(',')]
+                    df_redu_filtered = df_redu_filtered[~df_redu_filtered[col_name].isin(values)]
+            print(f"Filtered {col_name} with {operator} {value}. Rows remaining: {len(df_redu_filtered)}")
 
     # Filter via submit-fasstmasst
     elif triggered_id == "submit-fasstmasst":
@@ -687,15 +464,15 @@ def update_filtered_data_store(pathname, filter_query, submit_n_clicks, current_
                 if not df_response.empty:
                     df_response['USI'] = df_response['USI'].apply(lambda x: ":".join(x.split(":")[:-2]))
                     matching_usis = df_response['USI'].unique()
-                    dff = dff[dff['USI'].isin(matching_usis)]
-                    print("Filtered rows after USI subset:", len(dff))  # Debug
+                    df_redu_filtered = df_redu_filtered[df_redu_filtered['USI'].isin(matching_usis)]
+                    print("Filtered rows after USI subset:", len(df_redu_filtered))  # Debug
 
         except Exception as e:
             print(f"Error during API request: {e}")
             return []
 
     # Return the fully filtered dataset for storage
-    return dff.to_dict('records')
+    return {"timestamp": time.time()}, 0
 
 
 
@@ -704,25 +481,31 @@ def update_filtered_data_store(pathname, filter_query, submit_n_clicks, current_
     Output("data-table", "data"),
     Output("rows-remaining", "children"),
     Output("page-count", "children"),
-    Input("filtered-data-store", "data"),
+    Input("update-happened", "data"),
     Input("data-table", "page_current"),
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
     prevent_initial_call=True
 )
-def update_table_display(filtered_data, page_current, page_size, sort_by):
-    dff = pd.DataFrame(filtered_data)
+def update_table_display(update_check, page_current, page_size, sort_by):
+    global df_redu_filtered
+
+    ctx = callback_context
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if triggered_id == 'update-happened':
+        page_current = 0
 
     # Sorting
     if sort_by:
-        dff = dff.sort_values(
+        df_redu_filtered = df_redu_filtered.sort_values(
             [col['column_id'] for col in sort_by],
             ascending=[col['direction'] == 'asc' for col in sort_by],
             inplace=False
         )
 
     # Pagination
-    total_filtered_rows = len(dff)
+    total_filtered_rows = len(df_redu_filtered)
     total_pages = max(1, math.ceil(total_filtered_rows / page_size))
     page_info = f"Page {page_current + 1} of {total_pages}"
     rows_remaining_text = f"{total_filtered_rows} files remaining"
@@ -730,45 +513,77 @@ def update_table_display(filtered_data, page_current, page_size, sort_by):
     # Slice data based on current page
     start_idx = page_current * page_size
     end_idx = start_idx + page_size
-    paginated_data = dff.iloc[start_idx:end_idx].to_dict('records')
+    paginated_data = df_redu_filtered.iloc[start_idx:end_idx]
 
-    return paginated_data, rows_remaining_text, page_info
+    paginated_data_dict = paginated_data.to_dict('records')
 
-
-
-@app.callback(
-    Output("download-dataframe-csv", "data"),
-    Input("download-button", "n_clicks"),
-    State('filtered-data-store', 'data'),
-    prevent_initial_call=True,
-)
-def download_filtered_data(n_clicks, filtered_data):
-    if n_clicks is None:
-        raise PreventUpdate
-
-    dff = pd.DataFrame(filtered_data)
-    print("Downloading data with rows:", len(dff))
-
-    return dcc.send_data_frame(dff.to_csv, "filtered_dataset.csv", index=False)
+    return paginated_data_dict, rows_remaining_text, page_info
 
 
-import clipboard
+
+
 @app.callback(
     Output("clipboard-content-store", "data"),
     Input("copy-button", "n_clicks"),
-    State("filtered-data-store", "data"),
     prevent_initial_call=True,
 )
-def update_clipboard_content(n_clicks, filtered_data):
+def update_clipboard_content(n_clicks):
+
+    if n_clicks is None:
+        raise PreventUpdate
+
+    global df_redu_filtered
     if n_clicks:
-        usis = [row['USI'] for row in filtered_data if 'USI' in row]
+        usis = df_redu_filtered['USI'].dropna().tolist()
         usi_text = '\n'.join(usis)
-        print(f"USIs copied to clipboard: {usi_text}")
         clipboard.copy(usi_text)
         return usi_text
     return ''
 
 
+@app.callback(
+    Output("download-dataframe-csv", "data"),
+    Input("download-button", "n_clicks"),
+    prevent_initial_call=True,
+)
+def download_filtered_data(n_clicks):
+    global df_redu_filtered
+    if n_clicks is None:
+        raise PreventUpdate
+
+    return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
+
+
+# Callbacks for opening and closing the modal
+@app.callback(
+    Output("fasstmasst-modal", "is_open"),
+    [Input("open-fasstmasst-button", "n_clicks"), Input("submit-fasstmasst", "n_clicks")],
+    [State("fasstmasst-modal", "is_open")],
+)
+def toggle_modal(open_click, submit_click, is_open):
+    if open_click or submit_click:
+        return not is_open
+    return is_open
+
+
+# Callback to render the appropriate page
+@app.callback(Output('page-content', 'children'),
+              [Input('url', 'pathname')])
+def display_page(pathname):
+    if pathname == '/documentation':
+        return documentation_layout
+    else:
+        return panredu_layout
+
+
+@app.callback(
+    Output("download-complete-tsv", "data"),
+    Input("download-complete-link", "n_clicks"),
+    prevent_initial_call=True
+)
+def download_df(n_clicks):
+    global df_redu
+    return dcc.send_data_frame(df_redu.to_csv, "redu_complete.tsv", sep="\t", index=False)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
