@@ -10,12 +10,51 @@ import math
 import clipboard
 import time
 
+import config
 from app import app
 
-PATH_TO_SAMPLE_INFORMATION = '/app/workflows/PublicDataset_ReDU_Metadata_Workflow/nf_output/all_sampleinformation.tsv'
+
+def _load_redu_sampledata():
+    path_to_binary_version = "./database/merged_metadata.feather"
+
+    # Checking age of files
+    last_modified = os.path.getmtime(config.PATH_TO_ORIGINAL_MAPPING_FILE)
+
+    use_feather = True
+
+    # Checking if the feather file is older than the TSV file
+    if os.path.exists(path_to_binary_version):
+        last_modified_binary = os.path.getmtime(path_to_binary_version)
+
+        # If the feather file is older than the TSV file, we need to regenerate it
+        if last_modified_binary < last_modified:
+            print("Binary file is older than TSV file, regenerating")
+            use_feather = False
+    else:
+        print("Binary file does not exist, creating")
+        use_feather = False
+    
+    if use_feather:
+        df_redu = pd.read_feather(path_to_binary_version)
+    else:
+        df_redu = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep='\t')
+        df_redu['YearOfAnalysis'] = df_redu['YearOfAnalysis'].astype(str)
+
+        df_redu.to_feather(path_to_binary_version)
+
+    return df_redu
+
+def _filter_redu_sampledata(redu_df):
+    # TODO: Update the filtering here given input
+
+    
+    return redu_df
 
 # Load the data
-df_redu = pd.read_csv(PATH_TO_SAMPLE_INFORMATION, sep='\t')
+df_redu = _load_redu_sampledata()
+
+
+
 
 # Define column configurations
 default_columns = ["SampleType", "SampleTypeSub1", "NCBITaxonomy", "UBERONBodyPartName", "MassSpectrometer", "USI"]
@@ -32,21 +71,20 @@ dash_app = dash.Dash(
 )
 
 dash_app.config.suppress_callback_exceptions = True  # Allow callbacks for components not in the initial layout
-server = app.server  # Expose the server variable
 
 # Determine which columns are hidden by default
 hidden_columns = [col for col in all_columns_ordered if col not in default_columns]
 
 
 # Make logo path
-image_url = app.get_asset_url("ReDU_logo_with_url.PNG")
+image_url = dash_app.get_asset_url("ReDU_logo_with_url.PNG")
 
 
 # Create the navigation menu with the logo
 navbar = dbc.Navbar(
     dbc.Container([
         html.A(
-            html.Img(src=app.get_asset_url("ReDU_logo_with_url.png"), height="80px", style={"padding-right": "15px"}),
+            html.Img(src=dash_app.get_asset_url("ReDU_logo_with_url.png"), height="80px", style={"padding-right": "15px"}),
             href="/",
             style={"textDecoration": "none"}
         ),
@@ -302,7 +340,7 @@ Happy exploring!
     ])
 
 # Main app layout
-app.layout = html.Div([
+dash_app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     navbar,
     html.Div(id='page-content')
@@ -401,7 +439,7 @@ def update_filtered_data_store(pathname, filter_query, reset_button, submit_n_cl
     ctx = callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    df_redu_filtered = pd.read_csv(PATH_TO_SAMPLE_INFORMATION, sep='\t')
+    df_redu_filtered = _load_redu_sampledata()
 
     # TODO: We can't do these things because we don't maintain state
     # Initialize dff with full dataset for fallback
@@ -495,7 +533,8 @@ def update_filtered_data_store(pathname, filter_query, reset_button, submit_n_cl
     prevent_initial_call=True
 )
 def update_table_display(update_check, page_current, page_size, sort_by):
-    global df_redu_filtered
+    
+    df_redu_filtered = _load_redu_sampledata()
 
     ctx = callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -539,7 +578,8 @@ def update_clipboard_content(n_clicks):
     if n_clicks is None:
         raise PreventUpdate
 
-    global df_redu_filtered
+    df_redu_filtered = _load_redu_sampledata()
+    
     if n_clicks:
         usis = df_redu_filtered['USI'].dropna().tolist()
         usi_text = '\n'.join(usis)
