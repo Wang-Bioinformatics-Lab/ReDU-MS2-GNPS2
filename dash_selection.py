@@ -44,11 +44,40 @@ def _load_redu_sampledata():
 
     return df_redu
 
-def _filter_redu_sampledata(redu_df):
-    # TODO: Update the filtering here given input
+def _filter_redu_sampledata(redu_df, filter_query=None):
+
+    if filter_query:
+        filtering_expressions = filter_query.split(' && ')
+        for filter_part in filtering_expressions:
+            col_name, operator, value = split_filter_part(filter_part)
+            if operator and col_name in redu_df.columns:
+                # Apply operator logic as previously defined
+                if operator == 'contains':
+                    redu_df = redu_df[
+                        redu_df[col_name].astype(str).str.contains(value, case=False, na=False, regex=True)]
+                if operator == 'scontains':
+                    redu_df = redu_df[
+                        redu_df[col_name].astype(str).str.contains(value, case=True, na=False, regex=True)]
+                elif operator == '=':
+                    redu_df = redu_df[redu_df[col_name] == value]
+                elif operator == '!=':
+                    redu_df = redu_df[redu_df[col_name] != value]
+                elif operator == '<':
+                    redu_df = redu_df[
+                        pd.to_numeric(redu_df[col_name], errors='coerce') < float(value)]
+                elif operator == '<=':
+                    redu_df = redu_df[
+                        pd.to_numeric(redu_df[col_name], errors='coerce') <= float(value)]
+                elif operator == '>':
+                    redu_df = redu_df[
+                        pd.to_numeric(redu_df[col_name], errors='coerce') > float(value)]
+                elif operator == '>=':
+                    redu_df = redu_df[
+                        pd.to_numeric(redu_df[col_name], errors='coerce') >= float(value)]
+
+    return redu_df
 
     
-    return redu_df
 
 # Load the data
 df_redu = _load_redu_sampledata()
@@ -248,7 +277,7 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 #page_action='custom',
                 filter_action='custom',
                 #filter_action='native',
-                #filter_query='{USI} contains ".(mzML|mzXML)$"',
+                filter_query='',
                 filter_options={"placeholder_text": "Filter column..."},
                 sort_action='custom',
                 sort_mode='multi',
@@ -349,6 +378,7 @@ dash_app.layout = html.Div([
 
 
 
+
 # Helper function for parsing filtering expressions
 def split_filter_part(filter_part):
     operators = [
@@ -377,147 +407,61 @@ def split_filter_part(filter_part):
             return col_name, operator, value
     return None, None, None
 
-# Callback to update data-table.filter_query and display current filters
+
+
+
+
 @dash_app.callback(
-    Output('data-table', 'filter_query'),
-    Input('reset-filters-button', 'n_clicks'),
+    Output("data-table", "columns"),
+    Output("data-table", "filter_query"),
+    Input("subset-mzml-button", "n_clicks"),
+    Input("data-table", "filter_query"),
+    State("data-table", "columns"),
+    State("data-table", "hidden_columns"),
     Input('example-filter-human', 'n_clicks'),
     Input('example-filter-plant', 'n_clicks'),
     Input('example-filter-orbitrap', 'n_clicks'),
     Input('example-filter-complex', 'n_clicks'),
     Input('example-filter-multi', 'n_clicks'),
-    prevent_initial_call=True,
+    prevent_initial_call=True
 )
-def update_data_table_filter_query(reset_clicks, human_clicks, plant_clicks, orbitrap_clicks, complex_clicks, multi_clicks):
+def populate_filters(n_clicks, old_condition, current_columns, hidden_columns, human_clicks, plant_clicks, orbitrap_clicks, complex_clicks,
+                                   multi_clicks):
+
+
     ctx = callback_context
     if not ctx.triggered:
         raise PreventUpdate
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
+    # Ensure the USI column is visible
+    columns_to_show = [col for col in current_columns if col['id'] not in hidden_columns]
 
-    # If Reset Filters is clicked
-    if triggered_id == 'reset-filters-button':
-        # Clear the filter query
-        return ''
+    if triggered_id == 'subset-mzml-button':
+        new_condition = '{USI} contains ".(mzML|mzXML)$"'
+        out_condition = f"{old_condition} && {new_condition}" if old_condition else new_condition
 
-    # Logic for example filters follows...
-    if triggered_id == 'example-filter-human':
-        new_condition = '{NCBITaxonomy} contains "Homo sapiens"'
+    elif triggered_id == 'example-filter-human':
+        out_condition = '{NCBITaxonomy} contains "Homo sapiens"'
+
     elif triggered_id == 'example-filter-plant':
-        new_condition = '{SampleType} contains "Plant"'
+        out_condition = '{SampleType} contains "Plant"'
+
     elif triggered_id == 'example-filter-orbitrap':
-        new_condition = '{MassSpectrometer} contains "(Orbitrap|Exactive|Exploris|Astral)"'
+        out_condition = '{MassSpectrometer} contains "(Orbitrap|Exactive|Exploris|Astral)"'
+
     elif triggered_id == 'example-filter-complex':
-        new_condition = '{NCBITaxonomy} contains "(Homo|Mus)(?!.*musculus)"'
+        out_condition = '{NCBITaxonomy} contains "(Homo|Mus)(?!.*musculus)"'
+
     elif triggered_id == 'example-filter-multi':
-        new_condition = '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'
+        out_condition = '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'
     else:
-        raise PreventUpdate
+        out_condition = old_condition
 
-    print(f"Applying new filter: {new_condition}")
-    return new_condition
+    print(f"we are trying to update the text box with {out_condition}")
 
-@dash_app.callback(
-    Output("update-happened", "data"),
-    Output("data-table", "page_current"),
-    Input("url", "pathname"),
-    Input("data-table", "filter_query"),
-    Input('reset-filters-button', 'n_clicks'),
-    Input("submit-fasstmasst", "n_clicks"),
-    Input('subset-mzml-button', 'n_clicks'),
-    State("usi", "value"),
-    State("min-cosine", "value"),
-    State("min-matching-peaks", "value"),
-    State("fragment-tolerance", "value"),
-    State("precursor-tolerance", "value"),
-    prevent_initial_call=False
-)
-def update_filtered_data_store(pathname, filter_query, reset_button, submit_n_clicks, mzml_button, usi, min_cos, min_fragments,
-                               fragment_mz_tol, precursor_mz_tol):
-
-    ctx = callback_context
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    df_redu_filtered = _load_redu_sampledata()
-
-    # TODO: We can't do these things because we don't maintain state
-    # Initialize dff with full dataset for fallback
-    # if triggered_id == 'reset-filters-button':
-    #     df_redu_filtered = df_redu.copy()
-    # else:
-    #     df_redu_filtered = df_redu_filtered
-
-    # if triggered_id == "subset-mzml-button":
-    #     df_redu_filtered = df_redu_filtered[df_redu_filtered['USI'].astype(str).str.contains('.(mzML|mzXML)$', case=True, na=False, regex=True)]
-
-
-    #Filter via data-table filter_query
-    if triggered_id == "data-table" and filter_query:
-        filtering_expressions = filter_query.split(' && ')
-        for filter_part in filtering_expressions:
-            col_name, operator, value = split_filter_part(filter_part)
-            if operator and col_name in df_redu_filtered.columns:
-                # Apply the operator logic
-
-                if value == "":  # Check for empty string to clear filter
-                    continue  # Skip this filter, effectively removing it
-
-                if operator == 'contains':
-                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name].astype(str).str.contains(value, case=False, na=False, regex=True)]
-                elif operator == 'scontains':
-                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name].astype(str).str.contains(value, case=True, na=False, regex=True)]
-                elif operator == '=':
-                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name] == value]
-                elif operator == '!=':
-                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name] != value]
-                elif operator == '<':
-                    df_redu_filtered = df_redu_filtered[pd.to_numeric(df_redu_filtered[col_name], errors='coerce') < float(value)]
-                elif operator == '<=':
-                    df_redu_filtered = df_redu_filtered[pd.to_numeric(df_redu_filtered[col_name], errors='coerce') <= float(value)]
-                elif operator == '>':
-                    df_redu_filtered = df_redu_filtered[pd.to_numeric(df_redu_filtered[col_name], errors='coerce') > float(value)]
-                elif operator == '>=':
-                    df_redu_filtered = df_redu_filtered[pd.to_numeric(df_redu_filtered[col_name], errors='coerce') >= float(value)]
-                elif operator == 'in':
-                    values = [v.strip() for v in value.split(',')]
-                    df_redu_filtered = df_redu_filtered[df_redu_filtered[col_name].isin(values)]
-                elif operator == 'nin':
-                    values = [v.strip() for v in value.split(',')]
-                    df_redu_filtered = df_redu_filtered[~df_redu_filtered[col_name].isin(values)]
-            print(f"Filtered {col_name} with {operator} {value}. Rows remaining: {len(df_redu_filtered)}")
-
-    # Filter via submit-fasstmasst
-    elif triggered_id == "submit-fasstmasst":
-        try:
-            params = {
-                "usi": usi,
-                "library": 'metabolomicspanrepo_index_latest',
-                "analog": "No",
-                "pm_tolerance": precursor_mz_tol,
-                "fragment_tolerance": fragment_mz_tol,
-                "cosine_threshold": min_cos,
-                "cache": "Yes"
-            }
-            r = requests.get("https://fasst.gnps2.org/search", params=params, timeout=50)
-            r.raise_for_status()
-
-            response_list = r.json().get('results', [])
-            if response_list:
-                df_response = pd.DataFrame(response_list)
-                df_response = df_response[df_response['Matching Peaks'] >= min_fragments]
-                if not df_response.empty:
-                    df_response['USI'] = df_response['USI'].apply(lambda x: ":".join(x.split(":")[:-2]))
-                    matching_usis = df_response['USI'].unique()
-                    df_redu_filtered = df_redu_filtered[df_redu_filtered['USI'].isin(matching_usis)]
-                    print("Filtered rows after USI subset:", len(df_redu_filtered))  # Debug
-
-        except Exception as e:
-            print(f"Error during API request: {e}")
-            return []
-
-    # Return the fully filtered dataset for storage
-    return {"timestamp": time.time()}, 0
+    return columns_to_show, out_condition
 
 
 
@@ -526,21 +470,19 @@ def update_filtered_data_store(pathname, filter_query, reset_button, submit_n_cl
     Output("data-table", "data"),
     Output("rows-remaining", "children"),
     Output("page-count", "children"),
-    Input("update-happened", "data"),
     Input("data-table", "page_current"),
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
-    prevent_initial_call=True
+    Input("data-table", "filter_query"),
+    State("data-table", "columns")#,
+    #prevent_initial_call=True
 )
-def update_table_display(update_check, page_current, page_size, sort_by):
-    
-    df_redu_filtered = _load_redu_sampledata()
+def update_table_display(page_current, page_size, sort_by, filter_query, visible_columns):
+    # Reload the base dataset from disk
+    df_redu = _load_redu_sampledata()
 
-    ctx = callback_context
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    if triggered_id == 'update-happened':
-        page_current = 0
+    # Apply filters
+    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query, visible_columns)
 
     # Sorting
     if sort_by:
@@ -561,42 +503,50 @@ def update_table_display(update_check, page_current, page_size, sort_by):
     end_idx = start_idx + page_size
     paginated_data = df_redu_filtered.iloc[start_idx:end_idx]
 
+    # Convert paginated data to dictionary format for DataTable
     paginated_data_dict = paginated_data.to_dict('records')
 
     return paginated_data_dict, rows_remaining_text, page_info
 
 
 
-
 @dash_app.callback(
     Output("clipboard-content-store", "data"),
     Input("copy-button", "n_clicks"),
+    State("data-table", "filter_query"),
+    State("data-table", "columns"),
     prevent_initial_call=True,
 )
-def update_clipboard_content(n_clicks):
-
+def update_clipboard_content(n_clicks, filter_query, visible_columns):
     if n_clicks is None:
         raise PreventUpdate
 
-    df_redu_filtered = _load_redu_sampledata()
-    
-    if n_clicks:
-        usis = df_redu_filtered['USI'].dropna().tolist()
-        usi_text = '\n'.join(usis)
-        clipboard.copy(usi_text)
-        return usi_text
-    return ''
+    # Reload and filter data on-demand
+    df_redu = _load_redu_sampledata()
+    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query, visible_columns)
+
+    # Prepare USIs for clipboard
+    usis = df_redu_filtered['USI'].dropna().tolist()
+    usi_text = '\n'.join(usis)
+    clipboard.copy(usi_text)
+
+    return usi_text
 
 
 @dash_app.callback(
     Output("download-dataframe-csv", "data"),
     Input("download-button", "n_clicks"),
-    prevent_initial_call=True,
+    State("data-table", "filter_query"),
+    State("data-table", "columns"),
+    prevent_initial_call=True
 )
-def download_filtered_data(n_clicks):
-    global df_redu_filtered
+def download_filtered_data(n_clicks, filter_query, visible_columns):
     if n_clicks is None:
         raise PreventUpdate
+
+    # Reload and filter data on-demand
+    df_redu = _load_redu_sampledata()
+    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query, visible_columns)
 
     return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
 
@@ -615,7 +565,7 @@ def toggle_modal(open_click, submit_click, is_open):
 
 # Callback to render the appropriate page
 @dash_app.callback(Output('page-content', 'children'),
-              [Input('url', 'pathname')])
+                   [Input('url', 'pathname')])
 def display_page(pathname):
     if pathname == '/documentation':
         return documentation_layout
@@ -629,7 +579,7 @@ def display_page(pathname):
     prevent_initial_call=True
 )
 def download_df(n_clicks):
-    global df_redu
+    df_redu = _load_redu_sampledata()
     return dcc.send_data_frame(df_redu.to_csv, "redu_complete.tsv", sep="\t", index=False)
 
 if __name__ == '__main__':
