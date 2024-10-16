@@ -12,11 +12,10 @@ import time
 
 from app import app
 
+PATH_TO_SAMPLE_INFORMATION = '/app/workflows/PublicDataset_ReDU_Metadata_Workflow/nf_output/all_sampleinformation.tsv'
 
 # Load the data
-df_redu = pd.read_csv('C:/Users/elabi/Downloads/all_sampleinformation.tsv', sep='\t')
-df_redu_filtered = df_redu.copy()
-
+df_redu = pd.read_csv(PATH_TO_SAMPLE_INFORMATION, sep='\t')
 
 # Define column configurations
 default_columns = ["SampleType", "SampleTypeSub1", "NCBITaxonomy", "UBERONBodyPartName", "MassSpectrometer", "USI"]
@@ -399,25 +398,24 @@ def update_data_table_filter_query(reset_clicks, human_clicks, plant_clicks, orb
 def update_filtered_data_store(pathname, filter_query, reset_button, submit_n_clicks, mzml_button, usi, min_cos, min_fragments,
                                fragment_mz_tol, precursor_mz_tol):
 
-    global df_redu
-    global df_redu_filtered
-
     ctx = callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    # Initialize dff with full dataset for fallback
-    if triggered_id == 'reset-filters-button':
-        df_redu_filtered = df_redu.copy()
-    else:
-        df_redu_filtered = df_redu_filtered
+    df_redu_filtered = pd.read_csv(PATH_TO_SAMPLE_INFORMATION, sep='\t')
 
-    if triggered_id == "subset-mzml-button":
-        df_redu_filtered = df_redu_filtered[df_redu_filtered['USI'].astype(str).str.contains('.(mzML|mzXML)$', case=True, na=False, regex=True)]
+    # TODO: We can't do these things because we don't maintain state
+    # Initialize dff with full dataset for fallback
+    # if triggered_id == 'reset-filters-button':
+    #     df_redu_filtered = df_redu.copy()
+    # else:
+    #     df_redu_filtered = df_redu_filtered
+
+    # if triggered_id == "subset-mzml-button":
+    #     df_redu_filtered = df_redu_filtered[df_redu_filtered['USI'].astype(str).str.contains('.(mzML|mzXML)$', case=True, na=False, regex=True)]
 
 
     #Filter via data-table filter_query
-    elif triggered_id == "data-table" and filter_query:
-
+    if triggered_id == "data-table" and filter_query:
         filtering_expressions = filter_query.split(' && ')
         for filter_part in filtering_expressions:
             col_name, operator, value = split_filter_part(filter_part)

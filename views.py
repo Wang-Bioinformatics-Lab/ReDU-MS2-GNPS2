@@ -99,6 +99,8 @@ def update():
 
 @app.route('/dump', methods=['GET'])
 def dump():
-    return send_file(config.PATH_TO_ORIGINAL_MAPPING_FILE, cache_timeout=1, as_attachment=True, attachment_filename="all_sampleinformation.tsv")
+    return send_file(config.PATH_TO_ORIGINAL_MAPPING_FILE, \
+                     max_age=1, as_attachment=True, \
+                     download_name="all_sampleinformation.tsv")
 
 
