@@ -142,39 +142,9 @@ panredu_layout = dbc.Container(fluid=True, children=[
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader(html.H2('Summary Statistics')),
-                dbc.CardBody([
-                    html.H5(f"Total Files: {len(df_redu):,}"),
-                    html.H5(f"Unique Datasets: {df_redu['ATTRIBUTE_DatasetAccession'].nunique()}"),
-                    html.H5('Files by DataSource:'),
-                    html.Ul([html.Li(f"{key}: {value}") for key, value in
-                             df_redu['DataSource'].value_counts().to_dict().items()]),
-                    html.H5('Represented Taxonomies:'),
-                    html.P(f"Total Unique Taxonomies: {df_redu['NCBITaxonomy'].nunique() - 1}"),
-                    html.Ul([
-                        html.Li(f"{division}: {taxonomies}")
-                        for division, taxonomies in df_redu[df_redu['NCBIDivision'].notna()]
-                        .groupby('NCBIDivision')['NCBITaxonomy']
-                        .nunique()
-                        .items()
-                        if taxonomies >= 10
-                    ]),
-                    html.H5('Human/Mouse data:'),
-                    html.P(f"Homo Sapiens: {len(df_redu[df_redu['NCBITaxonomy'] == '9606|Homo sapiens'])}"),
-                    html.Ul([
-                        html.Li(
-                            f"Unique Bodyparts: {df_redu.loc[df_redu['NCBITaxonomy'] == '9606|Homo sapiens', 'UBERONBodyPartName'].nunique() - 1}"),
-                        html.Li(
-                            f"Unique Diseases: {df_redu.loc[df_redu['NCBITaxonomy'] == '9606|Homo sapiens', 'DOIDCommonName'].nunique() - 1}")
-                    ]),
-                    html.P(f"Mus Musculus: {len(df_redu[df_redu['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus'])])}"),
-                    html.Ul([
-                        html.Li(
-                            f"Unique Bodyparts: {df_redu.loc[df_redu['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus']), 'UBERONBodyPartName'].nunique() - 1}"),
-                        html.Li(
-                            f"Unique Diseases: {df_redu.loc[df_redu['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus']), 'DOIDCommonName'].nunique() - 1}")
-                    ]),
-                ]),
+                dbc.CardBody(id="summary-stats")
             ], className='mb-4'),
+
             html.Div([
                 html.H5("Example Filters:"),
                 dbc.Button("Human Samples", id="example-filter-human", color="link"),
@@ -198,15 +168,21 @@ panredu_layout = dbc.Container(fluid=True, children=[
                     html.P([
                         'This represents a daily updated metadata table sourcing from the public metabolomics repositories: ',
                         html.Br(),
-                        html.A('MetaboLights', href='https://www.ebi.ac.uk/metabolights/', target='_blank', style={'fontSize': '18px'}),
+                        html.A('MetaboLights', href='https://www.ebi.ac.uk/metabolights/', target='_blank',
+                               style={'fontSize': '18px'}),
                         ', ',
-                        html.A('Metabolomics Workbench', href='https://www.metabolomicsworkbench.org/', target='_blank', style={'fontSize': '18px'}),
+                        html.A('Metabolomics Workbench', href='https://www.metabolomicsworkbench.org/', target='_blank',
+                               style={'fontSize': '18px'}),
                         ', and ',
-                        html.A('GNPS', href='https://gnps.ucsd.edu/ProteoSAFe/datasets.jsp#%7B%22query%22%3A%7B%7D%2C%22table_sort_history%22%3A%22createdMillis_dsc%22%2C%22title_input%22%3A%22GNPS%22', target='_blank', style={'fontSize': '18px'}),
+                        html.A('GNPS',
+                               href='https://gnps.ucsd.edu/ProteoSAFe/datasets.jsp#%7B%22query%22%3A%7B%7D%2C%22table_sort_history%22%3A%22createdMillis_dsc%22%2C%22title_input%22%3A%22GNPS%22',
+                               target='_blank', style={'fontSize': '18px'}),
                         '.',
                         html.Br(), html.Br(),
                         'Please ',
-                        html.A('contribute your data', href='https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?usp=sharing', target='_blank', style={'fontSize': '18px'}),
+                        html.A('contribute your data',
+                               href='https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?usp=sharing',
+                               target='_blank', style={'fontSize': '18px'}),
                         ' to grow this public resource and bring our field forward!'
                     ], className='text-center mb-4', style={'fontSize': '18px'}),
                 ], width=10),
@@ -226,14 +202,15 @@ panredu_layout = dbc.Container(fluid=True, children=[
             dbc.Row(
                 [
 
-                    dbc.Col(dbc.Button("Subset Table to Files Matching MS2", id="open-fasstmasst-button", color="info",
-                                       className="mb-4"),
-                            width="auto"),
+                    # dbc.Col(dbc.Button("Subset Table to Files Matching MS2", id="open-fasstmasst-button", color="info",
+                    #                    className="mb-4"),
+                    #         width="auto"),
                     dbc.Col(dbc.Button("Subset Table to mz(X)ML files", id="subset-mzml-button", color="info",
                                        className="mb-4"),
                             width="auto"),
-                    dbc.Col(dbc.Button("Reset All Filters", id="reset-filters-button", color="warning", className="mb-4"),
-                            width="auto"),
+                    dbc.Col(
+                        dbc.Button("Reset All Filters", id="reset-filters-button", color="warning", className="mb-4"),
+                        width="auto"),
                     dbc.Col(dbc.Button("Download Filtered Table", id="download-button", color="primary",
                                        className="mb-2"), width="auto")
                 ],
@@ -243,21 +220,25 @@ panredu_layout = dbc.Container(fluid=True, children=[
             # New Button Row
             dbc.Row(
                 [
-                    dbc.Col(dbc.Button("Copy Filtered USIs for Analysis", id="copy-button", color="secondary", className="mb-2"),
+                    dbc.Col(dbc.Button("Copy Filtered USIs for Analysis", id="copy-button", color="secondary",
+                                       className="mb-2"),
                             width="auto"),
 
                     dbc.Col(dbc.Button("USIs --> Molecular Networking", id="MN-button", color="primary",
-                                       className="mb-2", href="https://gnps2.org/workflowinput?workflowname=classical_networking_workflow",
+                                       className="mb-2",
+                                       href="https://gnps2.org/workflowinput?workflowname=classical_networking_workflow",
                                        target="_blank"),
                             width="auto"),
 
                     dbc.Col(dbc.Button("USIs --> MassQL", id="massql-button", color="primary",
-                                       className="mb-4", href="https://gnps2.org/workflowinput?workflowname=massql_workflow",
+                                       className="mb-4",
+                                       href="https://gnps2.org/workflowinput?workflowname=massql_workflow",
                                        target="_blank"),
                             width="auto"),
 
                     dbc.Col(dbc.Button("USIs --> Raw Data Download", id="USIdownload-button", color="primary",
-                                       className="mb-2", href="https://github.com/Wang-Bioinformatics-Lab/downloadpublicdata",
+                                       className="mb-2",
+                                       href="https://github.com/Wang-Bioinformatics-Lab/downloadpublicdata",
                                        target="_blank"),
                             width="auto")
                 ],
@@ -274,9 +255,9 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 page_current=0,
                 page_size=10,
                 page_action='custom',
-                #page_action='custom',
+                # page_action='custom',
                 filter_action='custom',
-                #filter_action='native',
+                # filter_action='native',
                 filter_query='',
                 filter_options={"placeholder_text": "Filter column..."},
                 sort_action='custom',
@@ -296,7 +277,6 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 html.Div(id='rows-remaining', className='mt-2'),  # Rows remaining div
                 html.Div(id='dummy-div', style={'display': 'none'})  # Any additional elements if needed
             ], justify="end", className="text-end"),
-
 
             # Additional Components if Needed
             dcc.Download(id="download-dataframe-csv"),
@@ -325,7 +305,8 @@ panredu_layout = dbc.Container(fluid=True, children=[
                             dbc.Row([
                                 dbc.Label("USI", html_for="usi", width=4),
                                 dbc.Col(dbc.Input(id="usi", type="text", placeholder="mzspec:....",
-                                                  value="mzspec:GNPS:GNPS-LIBRARY:accession:CCMSLIB00005435737", style={'width': '100%'}),
+                                                  value="mzspec:GNPS:GNPS-LIBRARY:accession:CCMSLIB00005435737",
+                                                  style={'width': '100%'}),
                                         width=8),
                             ], className="mb-3"),
                             dbc.Row([
@@ -407,6 +388,66 @@ def split_filter_part(filter_part):
             return col_name, operator, value
     return None, None, None
 
+
+
+@dash_app.callback(
+    Output("summary-stats", "children"),
+    Input("data-table", "page_current")
+)
+def update_summary_stats(n_clicks):
+    # Load the full dataset
+    df_redu = _load_redu_sampledata()
+
+    # Calculate statistics
+    total_files = len(df_redu)
+    unique_datasets = df_redu['ATTRIBUTE_DatasetAccession'].nunique()
+
+    # Files by DataSource
+    data_source_counts = df_redu['DataSource'].value_counts().to_dict()
+
+    # Represented Taxonomies
+    unique_taxonomies = df_redu['NCBITaxonomy'].nunique() - 1  # Adjusted based on your original static values
+
+    # NCBI Divisions
+    unique_divisions = [
+        (division, taxonomies) for division, taxonomies in df_redu[df_redu['NCBIDivision'].notna()]
+        .groupby('NCBIDivision')['NCBITaxonomy']
+        .nunique().items() if taxonomies >= 10
+    ]
+    # Human and Mouse Data Specifics
+    human_samples = len(df_redu[df_redu['NCBITaxonomy'] == '9606|Homo sapiens'])
+    human_bodyparts = df_redu.loc[df_redu['NCBITaxonomy'] == '9606|Homo sapiens', 'UBERONBodyPartName'].nunique() - 1
+    human_diseases = df_redu.loc[df_redu['NCBITaxonomy'] == '9606|Homo sapiens', 'DOIDCommonName'].nunique() - 1
+
+    mouse_samples = len(df_redu[df_redu['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus'])])
+    mouse_bodyparts = df_redu.loc[df_redu['NCBITaxonomy'].isin(
+        ['10088|Mus', '10090|Mus musculus']), 'UBERONBodyPartName'].nunique() - 1
+    mouse_diseases = df_redu.loc[df_redu['NCBITaxonomy'].isin(
+        ['10088|Mus', '10090|Mus musculus']), 'DOIDCommonName'].nunique() - 1
+
+    # Compose card children based on these values
+    stats_card_content = [
+        html.H5(f"Total Files: {total_files:,}"),
+        html.H5(f"Unique Datasets: {unique_datasets}"),
+        html.H5('Files by DataSource:'),
+        html.Ul([html.Li(f"{key}: {value}") for key, value in data_source_counts.items()]),
+        html.H5('Represented Taxonomies:'),
+        html.P(f"Total Unique Taxonomies: {unique_taxonomies}:"),
+        html.Ul([html.Li(f"{division}: {count}") for division, count in unique_divisions]),
+        html.H5('Human/Mouse data:'),
+        html.P(f"Homo Sapiens: {human_samples}"),
+        html.Ul([
+            html.Li(f"Unique Bodyparts: {human_bodyparts}"),
+            html.Li(f"Unique Diseases: {human_diseases}")
+        ]),
+        html.P(f"Mus Musculus: {mouse_samples}"),
+        html.Ul([
+            html.Li(f"Unique Bodyparts: {mouse_bodyparts}"),
+            html.Li(f"Unique Diseases: {mouse_diseases}")
+        ]),
+    ]
+
+    return stats_card_content
 
 
 
@@ -551,16 +592,16 @@ def download_filtered_data(n_clicks, filter_query, visible_columns):
     return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
 
 
-# Callbacks for opening and closing the modal
-@dash_app.callback(
-    Output("fasstmasst-modal", "is_open"),
-    [Input("open-fasstmasst-button", "n_clicks"), Input("submit-fasstmasst", "n_clicks")],
-    [State("fasstmasst-modal", "is_open")],
-)
-def toggle_modal(open_click, submit_click, is_open):
-    if open_click or submit_click:
-        return not is_open
-    return is_open
+# # Callbacks for opening and closing the modal
+# @dash_app.callback(
+#     Output("fasstmasst-modal", "is_open"),
+#     [Input("open-fasstmasst-button", "n_clicks"), Input("submit-fasstmasst", "n_clicks")],
+#     [State("fasstmasst-modal", "is_open")],
+# )
+# def toggle_modal(open_click, submit_click, is_open):
+#     if open_click or submit_click:
+#         return not is_open
+#     return is_open
 
 
 # Callback to render the appropriate page
