@@ -66,6 +66,8 @@ dash_app = dash.Dash(
 )
 
 dash_app.config.suppress_callback_exceptions = True  # Allow callbacks for components not in the initial layout
+dash_app.title = 'ReDU2'
+
 
 # Determine which columns are hidden by default
 hidden_columns = [col for col in all_columns_ordered if col not in default_columns]
