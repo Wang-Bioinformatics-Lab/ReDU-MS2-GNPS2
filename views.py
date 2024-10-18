@@ -14,10 +14,12 @@ import pandas as pd
 # Local imports
 import config
 import tasks
+import utils
 
 @app.route('/', methods=['GET'])
 def renderhomepage():
-    metadata_df = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep="\t", dtype=str)
+    metadata_df = utils._load_redu_sampledata()
+
     total_files = len(metadata_df["filename"].unique())
 
     # Checking when this file was last modified
