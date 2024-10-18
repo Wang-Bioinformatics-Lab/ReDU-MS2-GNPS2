@@ -1,5 +1,6 @@
 import pandas as pd
 import config
+import os
 
 
 def _load_redu_sampledata():
@@ -31,3 +32,12 @@ def _load_redu_sampledata():
         df_redu.to_feather(path_to_binary_version)
 
     return df_redu
+
+def _metadata_last_modified():
+    # Checking when this file was last modified
+    last_modified = os.path.getmtime(config.PATH_TO_ORIGINAL_MAPPING_FILE)
+
+    # Making this PST time and human readable
+    last_modified = pd.to_datetime(last_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
+
+    return last_modified

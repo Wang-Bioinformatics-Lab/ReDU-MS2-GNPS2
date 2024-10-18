@@ -11,7 +11,7 @@ import time
 
 from app import app
 
-from utils import _load_redu_sampledata
+from utils import _load_redu_sampledata, _metadata_last_modified
 
 def _filter_redu_sampledata(redu_df, filter_query=None):
 
@@ -50,9 +50,6 @@ def _filter_redu_sampledata(redu_df, filter_query=None):
 
 # Load the data
 df_redu = _load_redu_sampledata()
-
-
-
 
 # Define column configurations
 default_columns = ["SampleType", "SampleTypeSub1", "NCBITaxonomy", "UBERONBodyPartName", "MassSpectrometer", "USI"]
@@ -365,6 +362,12 @@ def update_summary_stats(n_clicks):
     # Load the full dataset
     df_redu = _load_redu_sampledata()
 
+    # Getting the last modified date of the file
+    last_modified = _metadata_last_modified()
+
+    # convert to string without the seconds but with timezone
+    last_modified = last_modified.strftime("%Y-%m-%d %H:%M %Z")
+
     # Calculate statistics
     total_files = len(df_redu)
     unique_datasets = df_redu['ATTRIBUTE_DatasetAccession'].nunique()
@@ -412,6 +415,8 @@ def update_summary_stats(n_clicks):
             html.Li(f"Unique Bodyparts: {mouse_bodyparts}"),
             html.Li(f"Unique Diseases: {mouse_diseases}")
         ]),
+        html.Hr(),
+        html.Div("Last Modified - {}".format(last_modified))
     ]
 
     return stats_card_content

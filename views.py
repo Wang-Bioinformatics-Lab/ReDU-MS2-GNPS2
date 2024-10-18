@@ -18,17 +18,9 @@ import utils
 
 @app.route('/', methods=['GET'])
 def renderhomepage():
-    metadata_df = utils._load_redu_sampledata()
+    # forward to /selection
 
-    total_files = len(metadata_df["filename"].unique())
-
-    # Checking when this file was last modified
-    last_modified = os.path.getmtime(config.PATH_TO_ORIGINAL_MAPPING_FILE)
-
-    # Making this PST time and human readable
-    last_modified = pd.to_datetime(last_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
-    
-    return render_template('homepage.html', total_files=total_files, total_identifications=0, total_compounds=0, last_modified=last_modified)
+    return redirect("/selection")
 
 @app.route('/metadataselection', methods=['GET'])
 def metadataselection():
