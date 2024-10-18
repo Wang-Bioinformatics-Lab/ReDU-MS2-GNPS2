@@ -85,10 +85,34 @@ navbar = dbc.Navbar(
         ),
         dbc.NavbarSimple(
             children=[
-                dbc.NavItem(dbc.NavLink("Home", href="/", active="exact", style={"fontSize": "20px", "margin-right": "100px"})),
-                dbc.NavItem(dbc.NavLink("Contribute Your Data", href="https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?gid=1001603307#gid=1001603307", target="_blank", external_link=True, active="exact", style={"fontSize": "20px", "margin-right": "100px"})),
-                dbc.NavItem(dbc.NavLink("ReDU Dashboard - Documentation", href="/documentation", active="exact", style={"fontSize": "20px", "margin-right": "100px"})),
-                dbc.NavItem(dbc.NavLink("Download ReDU", href="/download-tsv", id="download-complete-link", style={"fontSize": "20px", "margin-right": "20px"})),
+                dbc.NavItem(
+                    html.A(
+                        "Contribute Your Data",
+                        href="https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?gid=1001603307#gid=1001603307",
+                        target="_blank",
+                        className="nav-link",
+                        style={"fontSize": "20px", "margin-right": "100px"}
+                    )
+                ),
+                dbc.NavItem(
+                    html.A(
+                        "ReDU Dashboard - Documentation",
+                        href="https://mwang87.github.io/ReDU-MS2-Documentation/",
+                        target="_blank",
+                        className="nav-link",
+                        style={"fontSize": "20px", "margin-right": "100px"}
+                    )
+                ),
+                dbc.NavItem(
+                    html.A(
+                        "Download Complete ReDU",
+                        href="/dump",
+                        target="_blank",
+                        id="download-complete-link",
+                        className="nav-link",
+                        style={"fontSize": "20px", "margin-right": "20px"}
+                    )
+                )
             ],
             color="#e1e8f2",  # Adjusted color to complement the logo
             dark=False,  # Set to False if you choose a light color for better readability
@@ -299,25 +323,33 @@ panredu_layout = dbc.Container(fluid=True, children=[
 ])
 
 
-# Layout for the Documentation page
-documentation_layout = dbc.Container(fluid=True, children=[
-    html.H2("ReDU Dashboard - Documentation", className='text-center my-4'),
-    html.Div([
-        dcc.Markdown('''
-**Welcome to the Dataset Investigation Dashboard!**
+# setting tracking token
+dash_app.index_string = """<!DOCTYPE html>
+<html>
+    <head>
+        <!-- Umami Analytics -->
+        <script async defer data-website-id="74bc9983-13c4-4da0-89ae-b78209c13aaf" src="https://analytics.gnps2.org/umami.js"></script>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>"""
 
-
-Happy exploring!
-        ''')
-    ], className='mb-4')
-
-    ])
 
 # Main app layout
 dash_app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     navbar,
-    html.Div(id='page-content')
+    panredu_layout
 ])
 
 
@@ -564,24 +596,6 @@ def download_filtered_data(n_clicks, filter_query, visible_columns):
 #     return is_open
 
 
-# Callback to render the appropriate page
-@dash_app.callback(Output('page-content', 'children'),
-                   [Input('url', 'pathname')])
-def display_page(pathname):
-    if pathname == '/documentation':
-        return documentation_layout
-    else:
-        return panredu_layout
-
-
-@dash_app.callback(
-    Output("download-complete-tsv", "data"),
-    Input("download-complete-link", "n_clicks"),
-    prevent_initial_call=True
-)
-def download_df(n_clicks):
-    df_redu = _load_redu_sampledata()
-    return dcc.send_data_frame(df_redu.to_csv, "redu_complete.tsv", sep="\t", index=False)
 
 if __name__ == '__main__':
     app.run_server(debug=True)

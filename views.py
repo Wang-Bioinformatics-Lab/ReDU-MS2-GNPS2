@@ -81,7 +81,6 @@ def status_timeline():
     return send_file("./workflows/PublicDataset_ReDU_Metadata_Workflow/timeline.html", cache_timeout=1)
 
 
-
 # manually trigger the task
 @app.route('/update', methods=['GET'])
 def update():
