@@ -277,6 +277,10 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 html.Div(id='dummy-div', style={'display': 'none'})  # Any additional elements if needed
             ], justify="end", className="text-end"),
 
+            # Additional Components if Needed
+            dcc.Download(id="download-dataframe-csv"),
+            
+
             # Modal for settings popup
             dbc.Modal(
                 [
@@ -555,45 +559,22 @@ def update_table_display(page_current, page_size, sort_by, filter_query, visible
     return paginated_data_dict, rows_remaining_text, page_info
 
 
+@dash_app.callback(
+    Output("download-dataframe-csv", "data"),
+    Input("download-button", "n_clicks"),
+    State("data-table", "filter_query"),
+    State("data-table", "columns"),
+    prevent_initial_call=True
+)
+def download_filtered_data(n_clicks, filter_query, visible_columns):
+    if n_clicks is None:
+        raise PreventUpdate
 
-# @dash_app.callback(
-#     Output("clipboard-content-store", "data"),
-#     Input("copy-button", "n_clicks"),
-#     State("data-table", "filter_query"),
-#     State("data-table", "columns"),
-#     prevent_initial_call=True,
-# )
-# def update_clipboard_content(n_clicks, filter_query, visible_columns):
-#     if n_clicks is None:
-#         raise PreventUpdate
+    # Reload and filter data on-demand
+    df_redu = _load_redu_sampledata()
+    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
-#     # Reload and filter data on-demand
-#     df_redu = _load_redu_sampledata()
-#     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
-
-#     # Prepare USIs for clipboard
-#     usis = df_redu_filtered['USI'].dropna().tolist()
-#     usi_text = '\n'.join(usis)
-
-#     return usi_text
-
-
-# @dash_app.callback(
-#     Output("download-dataframe-csv", "data"),
-#     Input("download-button", "n_clicks"),
-#     State("data-table", "filter_query"),
-#     State("data-table", "columns"),
-#     prevent_initial_call=True
-# )
-# def download_filtered_data(n_clicks, filter_query, visible_columns):
-#     if n_clicks is None:
-#         raise PreventUpdate
-
-#     # Reload and filter data on-demand
-#     df_redu = _load_redu_sampledata()
-#     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
-
-#     return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
+    return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
 
 
 # # Callbacks for opening and closing the modal
