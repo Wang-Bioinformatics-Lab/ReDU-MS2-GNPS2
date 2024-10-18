@@ -191,50 +191,51 @@ panredu_layout = dbc.Container(fluid=True, children=[
             ], align="center"),
 
             # Buttons Row Above the Data Table
-            dbc.Row(
+           dbc.Row(
                 [
-
-                    # dbc.Col(dbc.Button("Subset Table to Files Matching MS2", id="open-fasstmasst-button", color="info",
-                    #                    className="mb-4"),
-                    #         width="auto"),
-                    dbc.Col(dbc.Button("Subset Table to mz(X)ML files", id="subset-mzml-button", color="info",
-                                       className="mb-4"),
-                            width="auto"),
                     dbc.Col(
-                        dbc.Button("Reset All Filters", id="reset-filters-button", color="warning", className="mb-4"),
-                        width="auto"),
-                    dbc.Col(dbc.Button("Download Filtered Table", id="download-button", color="primary",
-                                       className="mb-2"), width="auto")
-                ],
-                className="mb-1 mt-3 d-flex justify-content-start"
-            ),
-
-            # New Button Row
-            dbc.Row(
-                [
-                    dbc.Col(dbc.Button("Copy Filtered USIs for Analysis", id="copy-button", color="secondary",
-                                       className="mb-2"),
-                            width="auto"),
-
-                    dbc.Col(dbc.Button("USIs --> Molecular Networking", id="MN-button", color="primary",
-                                       className="mb-2",
+                        [
+                            html.P(['Filter Table:']),
+                            dbc.Button("Subset Table to mz(X)ML files", id="subset-mzml-button", color="info",
+                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"}),
+                            dbc.Button("Reset All Filters", id="reset-filters-button", color="info",
+                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})
+                        ],
+                        width=3, className="d-flex flex-column align-items-start justify-content-start",
+                        style={"height": "200px"}
+                    ),
+                    dbc.Col(
+                        [
+                            html.P(['Download selection:']),
+                            dbc.Button("Download Filtered Table", id="download-button", color="warning",
+                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"}),
+                            dbc.Button("Copy Filtered USIs for Analysis", id="copy-button", color="warning",
+                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})
+                        ],
+                        width=3, className="d-flex flex-column align-items-start justify-content-start",
+                        style={"height": "200px"}
+                    ),
+                    dbc.Col(
+                        [
+                            html.P(['Downstream tooling:']),
+                            dbc.Button("USIs --> Molecular Networking", id="MN-button", color="primary",
+                                       className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
                                        href="https://gnps2.org/workflowinput?workflowname=classical_networking_workflow",
                                        target="_blank"),
-                            width="auto"),
-
-                    dbc.Col(dbc.Button("USIs --> MassQL", id="massql-button", color="primary",
-                                       className="mb-4",
+                            dbc.Button("USIs --> MassQL", id="massql-button", color="primary",
+                                       className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
                                        href="https://gnps2.org/workflowinput?workflowname=massql_workflow",
                                        target="_blank"),
-                            width="auto"),
-
-                    dbc.Col(dbc.Button("USIs --> Raw Data Download", id="USIdownload-button", color="primary",
-                                       className="mb-2",
+                            dbc.Button("USIs --> Raw Data Download", id="USIdownload-button", color="primary",
+                                       className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
                                        href="https://github.com/Wang-Bioinformatics-Lab/downloadpublicdata",
-                                       target="_blank"),
-                            width="auto")
+                                       target="_blank")
+                        ],
+                        width=3, className="d-flex flex-column align-items-start justify-content-around",
+                        style={"height": "200px"}
+                    )
                 ],
-                className="mb-2 mt-1 d-flex justify-content-start"
+                className="mb-2 mt-3"
             ),
             # Data Table Component
             dash_table.DataTable(
