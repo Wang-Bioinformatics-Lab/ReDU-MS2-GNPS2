@@ -7,7 +7,6 @@ from dash.exceptions import PreventUpdate
 import pandas as pd
 import re
 import math
-import clipboard
 import time
 
 import config
@@ -278,12 +277,6 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 html.Div(id='dummy-div', style={'display': 'none'})  # Any additional elements if needed
             ], justify="end", className="text-end"),
 
-            # Additional Components if Needed
-            dcc.Download(id="download-dataframe-csv"),
-            dcc.Clipboard(id="clipboard", content='', style={'display': 'none'}),
-            dcc.Store(id="clipboard-content-store"),
-            dcc.Store(id='update-happened', storage_type='memory'),
-
             # Modal for settings popup
             dbc.Modal(
                 [
@@ -456,7 +449,8 @@ def update_summary_stats(n_clicks):
     Output("data-table", "columns"),
     Output("data-table", "filter_query"),
     Input("subset-mzml-button", "n_clicks"),
-    Input("data-table", "filter_query"),
+    Input("reset-filters-button", "n_clicks"),
+    State("data-table", "filter_query"),
     State("data-table", "columns"),
     State("data-table", "hidden_columns"),
     Input('example-filter-human', 'n_clicks'),
@@ -466,8 +460,16 @@ def update_summary_stats(n_clicks):
     Input('example-filter-multi', 'n_clicks'),
     prevent_initial_call=True
 )
-def populate_filters(n_clicks, old_condition, current_columns, hidden_columns, human_clicks, plant_clicks, orbitrap_clicks, complex_clicks,
-                                   multi_clicks):
+def populate_filters(n_clicks_mzml, 
+                     n_clicks_reset,
+                     old_condition,
+                     current_columns,
+                     hidden_columns,
+                     human_clicks,
+                     plant_clicks,
+                     orbitrap_clicks,
+                     complex_clicks,
+                     multi_clicks):
 
 
     ctx = callback_context
@@ -497,6 +499,10 @@ def populate_filters(n_clicks, old_condition, current_columns, hidden_columns, h
 
     elif triggered_id == 'example-filter-multi':
         out_condition = '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'
+    
+    elif triggered_id == 'reset-filters-button':
+        out_condition = ''
+
     else:
         out_condition = old_condition
 
@@ -515,15 +521,14 @@ def populate_filters(n_clicks, old_condition, current_columns, hidden_columns, h
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
     Input("data-table", "filter_query"),
-    State("data-table", "columns")#,
-    #prevent_initial_call=True
+    State("data-table", "columns")
 )
 def update_table_display(page_current, page_size, sort_by, filter_query, visible_columns):
     # Reload the base dataset from disk
     df_redu = _load_redu_sampledata()
 
     # Apply filters
-    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query, visible_columns)
+    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
     # Sorting
     if sort_by:
@@ -551,45 +556,44 @@ def update_table_display(page_current, page_size, sort_by, filter_query, visible
 
 
 
-@dash_app.callback(
-    Output("clipboard-content-store", "data"),
-    Input("copy-button", "n_clicks"),
-    State("data-table", "filter_query"),
-    State("data-table", "columns"),
-    prevent_initial_call=True,
-)
-def update_clipboard_content(n_clicks, filter_query, visible_columns):
-    if n_clicks is None:
-        raise PreventUpdate
+# @dash_app.callback(
+#     Output("clipboard-content-store", "data"),
+#     Input("copy-button", "n_clicks"),
+#     State("data-table", "filter_query"),
+#     State("data-table", "columns"),
+#     prevent_initial_call=True,
+# )
+# def update_clipboard_content(n_clicks, filter_query, visible_columns):
+#     if n_clicks is None:
+#         raise PreventUpdate
 
-    # Reload and filter data on-demand
-    df_redu = _load_redu_sampledata()
-    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query, visible_columns)
+#     # Reload and filter data on-demand
+#     df_redu = _load_redu_sampledata()
+#     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
-    # Prepare USIs for clipboard
-    usis = df_redu_filtered['USI'].dropna().tolist()
-    usi_text = '\n'.join(usis)
-    clipboard.copy(usi_text)
+#     # Prepare USIs for clipboard
+#     usis = df_redu_filtered['USI'].dropna().tolist()
+#     usi_text = '\n'.join(usis)
 
-    return usi_text
+#     return usi_text
 
 
-@dash_app.callback(
-    Output("download-dataframe-csv", "data"),
-    Input("download-button", "n_clicks"),
-    State("data-table", "filter_query"),
-    State("data-table", "columns"),
-    prevent_initial_call=True
-)
-def download_filtered_data(n_clicks, filter_query, visible_columns):
-    if n_clicks is None:
-        raise PreventUpdate
+# @dash_app.callback(
+#     Output("download-dataframe-csv", "data"),
+#     Input("download-button", "n_clicks"),
+#     State("data-table", "filter_query"),
+#     State("data-table", "columns"),
+#     prevent_initial_call=True
+# )
+# def download_filtered_data(n_clicks, filter_query, visible_columns):
+#     if n_clicks is None:
+#         raise PreventUpdate
 
-    # Reload and filter data on-demand
-    df_redu = _load_redu_sampledata()
-    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query, visible_columns)
+#     # Reload and filter data on-demand
+#     df_redu = _load_redu_sampledata()
+#     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
-    return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
+#     return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
 
 
 # # Callbacks for opening and closing the modal
