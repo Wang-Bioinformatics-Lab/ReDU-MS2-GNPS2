@@ -9,3 +9,10 @@ Flask-Caching
 peewee
 celery
 redis
+dash
+dash-bootstrap-components
+dash-core-components
+dash-html-components
+dash-renderer
+dash-table
+pyarrow
