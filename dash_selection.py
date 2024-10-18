@@ -191,11 +191,11 @@ panredu_layout = dbc.Container(fluid=True, children=[
             ], align="center"),
 
             # Buttons Row Above the Data Table
-           dbc.Row(
+            dbc.Row(
                 [
                     dbc.Col(
                         [
-                            html.P(['Filter Table:']),
+                            html.H3(['Filter Table'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
                             dbc.Button("Subset Table to mz(X)ML files", id="subset-mzml-button", color="info",
                                        className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"}),
                             dbc.Button("Reset All Filters", id="reset-filters-button", color="info",
@@ -206,7 +206,7 @@ panredu_layout = dbc.Container(fluid=True, children=[
                     ),
                     dbc.Col(
                         [
-                            html.P(['Download selection:']),
+                            html.H3(['Download selection'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
                             dbc.Button("Download Filtered Table", id="download-button", color="warning",
                                        className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"}),
                             dbc.Button("Copy Filtered USIs for Analysis", id="copy-button", color="warning",
@@ -217,7 +217,7 @@ panredu_layout = dbc.Container(fluid=True, children=[
                     ),
                     dbc.Col(
                         [
-                            html.P(['Downstream tooling:']),
+                            html.H3(['Downstream tooling'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
                             dbc.Button("USIs --> Molecular Networking", id="MN-button", color="primary",
                                        className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
                                        href="https://gnps2.org/workflowinput?workflowname=classical_networking_workflow",
