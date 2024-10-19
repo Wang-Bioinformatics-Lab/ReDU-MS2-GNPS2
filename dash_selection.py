@@ -198,8 +198,10 @@ panredu_layout = dbc.Container(fluid=True, children=[
                             html.H3(['Filter Table'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
                             dbc.Button("Subset Table to mz(X)ML files", id="subset-mzml-button", color="info",
                                        className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"}),
-                            dbc.Button("Reset All Filters", id="reset-filters-button", color="info",
-                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})
+                            html.P(['Or use the column filters below,..'],
+                                   className='text-center mb-4', style={'fontSize': '18px'})
+                            # dbc.Button("Reset All Filters", id="reset-filters-button", color="info",
+                            #            className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})
                         ],
                         width=3, className="d-flex flex-column align-items-start justify-content-start",
                         style={"height": "200px"}
@@ -208,9 +210,9 @@ panredu_layout = dbc.Container(fluid=True, children=[
                         [
                             html.H3(['Download selection'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
                             dbc.Button("Download Filtered Table", id="download-button", color="warning",
-                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"}),
-                            dbc.Button("Copy Filtered USIs for Analysis", id="copy-button", color="warning",
-                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})
+                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})#,
+                            # dbc.Button("Copy Filtered USIs for Analysis", id="copy-button", color="warning",
+                            #            className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})
                         ],
                         width=3, className="d-flex flex-column align-items-start justify-content-start",
                         style={"height": "200px"}
