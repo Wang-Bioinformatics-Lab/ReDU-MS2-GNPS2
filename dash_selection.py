@@ -7,7 +7,7 @@ from dash.exceptions import PreventUpdate
 import pandas as pd
 import re
 import math
-import time
+import json
 
 from app import app
 
@@ -218,7 +218,7 @@ panredu_layout = dbc.Container(fluid=True, children=[
                     dbc.Col(
                         [
                             html.H3(['Downstream tooling'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
-                            dbc.Button("USIs --> Molecular Networking", id="MN-button", color="primary",
+                            dbc.Button("USIs --> Molecular Networking", id="mn-button", color="primary",
                                        className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
                                        href="https://gnps2.org/workflowinput?workflowname=classical_networking_workflow",
                                        target="_blank"),
@@ -531,6 +531,8 @@ def populate_filters(n_clicks_mzml,
     Output("data-table", "data"),
     Output("rows-remaining", "children"),
     Output("page-count", "children"),
+    Output("mn-button", "href"),
+    Output("massql-button", "href"),
     Input("data-table", "page_current"),
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
@@ -566,7 +568,30 @@ def update_table_display(page_current, page_size, sort_by, filter_query, visible
     # Convert paginated data to dictionary format for DataTable
     paginated_data_dict = paginated_data.to_dict('records')
 
-    return paginated_data_dict, rows_remaining_text, page_info
+    # Here we will take the first 50 records for linkouts for GNPS2 Analysis
+    gnps_linkout_data_df = df_redu_filtered.head(50)
+    # getting the USIs
+    linkout_usis = gnps_linkout_data_df['USI'].tolist()
+
+    # GNPS2 Networking URL 
+    networking_gnps2_url = "https://gnps2.org/workflowinput?workflowname=classical_networking_workflow"
+    hash_params = {
+        "usi": "\n".join(linkout_usis),
+    }
+
+    networking_gnps2_url = networking_gnps2_url + "#" + json.dumps(hash_params)
+
+    # massql href
+    massql_gnps2_url = "https://gnps2.org/workflowinput?workflowname=massql_workflow"
+    massql_gnps2_url = massql_gnps2_url + "#" + json.dumps(hash_params)
+
+
+
+    return  paginated_data_dict, \
+            rows_remaining_text, \
+            page_info, \
+            networking_gnps2_url, \
+            massql_gnps2_url
 
 
 @dash_app.callback(
