@@ -465,7 +465,6 @@ def update_summary_stats(n_clicks):
     Output("data-table", "columns"),
     Output("data-table", "filter_query"),
     Input("subset-mzml-button", "n_clicks"),
-    Input("reset-filters-button", "n_clicks"),
     State("data-table", "filter_query"),
     State("data-table", "columns"),
     State("data-table", "hidden_columns"),
@@ -477,7 +476,6 @@ def update_summary_stats(n_clicks):
     prevent_initial_call=True
 )
 def populate_filters(n_clicks_mzml, 
-                     n_clicks_reset,
                      old_condition,
                      current_columns,
                      hidden_columns,
@@ -515,10 +513,7 @@ def populate_filters(n_clicks_mzml,
 
     elif triggered_id == 'example-filter-multi':
         out_condition = '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'
-    
-    elif triggered_id == 'reset-filters-button':
-        out_condition = ''
-
+        
     else:
         out_condition = old_condition
 
