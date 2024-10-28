@@ -14,19 +14,13 @@ import pandas as pd
 # Local imports
 import config
 import tasks
+import utils
 
 @app.route('/', methods=['GET'])
 def renderhomepage():
-    metadata_df = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep="\t", dtype=str)
-    total_files = len(metadata_df["filename"].unique())
+    # forward to /selection
 
-    # Checking when this file was last modified
-    last_modified = os.path.getmtime(config.PATH_TO_ORIGINAL_MAPPING_FILE)
-
-    # Making this PST time and human readable
-    last_modified = pd.to_datetime(last_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific')
-    
-    return render_template('homepage.html', total_files=total_files, total_identifications=0, total_compounds=0, last_modified=last_modified)
+    return redirect("/selection")
 
 @app.route('/metadataselection', methods=['GET'])
 def metadataselection():
@@ -87,7 +81,6 @@ def status_timeline():
     return send_file("./workflows/PublicDataset_ReDU_Metadata_Workflow/timeline.html", cache_timeout=1)
 
 
-
 # manually trigger the task
 @app.route('/update', methods=['GET'])
 def update():
@@ -99,6 +92,8 @@ def update():
 
 @app.route('/dump', methods=['GET'])
 def dump():
-    return send_file(config.PATH_TO_ORIGINAL_MAPPING_FILE, cache_timeout=1, as_attachment=True, attachment_filename="all_sampleinformation.tsv")
+    return send_file(config.PATH_TO_ORIGINAL_MAPPING_FILE, \
+                     max_age=1, as_attachment=True, \
+                     download_name="all_sampleinformation.tsv")
 
 

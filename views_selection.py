@@ -74,6 +74,14 @@ def viewattributeterms(attribute):
 @app.route('/attribute/<attribute>/attributeterm/<term>/files', methods=['GET'])
 def viewfilesattributeattributeterm(attribute, term):
     metadata_df = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep="\t", dtype=str)
+    
+    metadata_df = metadata_df[metadata_df[attribute] == term]
+
+    return json.dumps(metadata_df.to_dict(orient="records"))    
+
+    ### THIS IS DEPRECATED LOGIC
+    
+    
     filters_list = json.loads(request.values.get('filters', "[]"))
 
     # Applying filters
