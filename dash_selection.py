@@ -89,8 +89,17 @@ navbar = dbc.Navbar(
             children=[
                 dbc.NavItem(
                     html.A(
-                        "Contribute Your Data",
-                        href="https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?gid=1001603307#gid=1001603307",
+                        "Contribute Your Metadata",
+                        href="https://deposit.redu.gnps2.org/",
+                        target="_blank",
+                        className="nav-link",
+                        style={"fontSize": "20px", "margin-right": "100px"}
+                    )
+                ),                
+                dbc.NavItem(
+                    html.A(
+                        "Column Descriptions and Metadata validation",
+                        href="https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?usp=sharing",
                         target="_blank",
                         className="nav-link",
                         style={"fontSize": "20px", "margin-right": "100px"}
