@@ -615,12 +615,14 @@ def download_filtered_data(n_clicks, n_clicks2, filter_query, visible_columns):
     df_redu = _load_redu_sampledata()
     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
-    # rename USI to usi
-    df_redu_filtered = df_redu_filtered.rename(columns={'USI': 'usi'})
 
     # checking who is the trigger
     ctx = callback_context
     if ctx.triggered[0]['prop_id'].split('.')[0] == 'USIdownload-button':
+
+        # rename USI to usi
+        df_redu_filtered = df_redu_filtered.rename(columns={'USI': 'usi'})
+
         df_redu_filtered = df_redu_filtered[['usi']]
         return dcc.send_data_frame(df_redu_filtered.to_csv, "usis.csv", index=False)
 
