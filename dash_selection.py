@@ -471,12 +471,9 @@ def update_summary_stats(n_clicks):
 
 
 @dash_app.callback(
-    Output("data-table", "columns"),
     Output("data-table", "filter_query"),
     Input("subset-mzml-button", "n_clicks"),
     State("data-table", "filter_query"),
-    State("data-table", "columns"),
-    State("data-table", "hidden_columns"),
     Input('example-filter-human', 'n_clicks'),
     Input('example-filter-plant', 'n_clicks'),
     Input('example-filter-orbitrap', 'n_clicks'),
@@ -486,8 +483,6 @@ def update_summary_stats(n_clicks):
 )
 def populate_filters(n_clicks_mzml, 
                      old_condition,
-                     current_columns,
-                     hidden_columns,
                      human_clicks,
                      plant_clicks,
                      orbitrap_clicks,
@@ -500,9 +495,6 @@ def populate_filters(n_clicks_mzml,
         raise PreventUpdate
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    # Ensure the USI column is visible
-    columns_to_show = [col for col in current_columns if col['id'] not in hidden_columns]
 
     if triggered_id == 'subset-mzml-button':
         new_condition = '{USI} contains ".(mzML|mzXML)$"'
@@ -528,7 +520,7 @@ def populate_filters(n_clicks_mzml,
 
     print(f"we are trying to update the text box with {out_condition}")
 
-    return columns_to_show, out_condition
+    return out_condition
 
 
 
@@ -542,10 +534,9 @@ def populate_filters(n_clicks_mzml,
     Input("data-table", "page_current"),
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
-    Input("data-table", "filter_query"),
-    State("data-table", "columns")
+    Input("data-table", "filter_query")
 )
-def update_table_display(page_current, page_size, sort_by, filter_query, visible_columns):
+def update_table_display(page_current, page_size, sort_by, filter_query):
     # Reload the base dataset from disk
     df_redu = _load_redu_sampledata()
 
@@ -604,10 +595,9 @@ def update_table_display(page_current, page_size, sort_by, filter_query, visible
     Output("download-dataframe-csv", "data"),
     Input("download-button", "n_clicks"),
     State("data-table", "filter_query"),
-    State("data-table", "columns"),
     prevent_initial_call=True
 )
-def download_filtered_data(n_clicks, filter_query, visible_columns):
+def download_filtered_data(n_clicks, filter_query):
     if n_clicks is None:
         raise PreventUpdate
 
@@ -617,6 +607,29 @@ def download_filtered_data(n_clicks, filter_query, visible_columns):
 
     return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
 
+
+@dash_app.callback(
+    Output("download-dataframe-csv", "data"),
+    Input("USIdownload-button", "n_clicks"),
+    State("data-table", "filter_query"),
+    prevent_initial_call=True
+)
+def download_usis_data(n_clicks, filter_query):
+    if n_clicks is None:
+        raise PreventUpdate
+
+    # Reload and filter data on-demand
+    df_redu = _load_redu_sampledata()
+    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
+
+    df_usis = df_redu_filtered['USI']
+
+    #rename column USI to usi
+    df_usis = df_usis.rename('usi')
+
+
+
+    return dcc.send_data_frame(df_usis.to_csv, "usis.csv", index=False)
 
 # # Callbacks for opening and closing the modal
 # @dash_app.callback(
