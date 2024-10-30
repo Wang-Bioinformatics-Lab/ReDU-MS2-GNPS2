@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 MAINTAINER Mingxun Wang "mwang87@gmail.com"
 
-RUN apt-get update && apt-get install -y build-essential libarchive-dev wget vim
+RUN apt-get update && apt-get install -y build-essential libarchive-dev wget vim unzip
 
 # Install Mamba
 ENV CONDA_DIR /opt/conda
