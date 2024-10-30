@@ -283,8 +283,7 @@ panredu_layout = dbc.Container(fluid=True, children=[
             ], justify="end", className="text-end"),
 
             # Additional Components if Needed
-            dcc.Download(id="download-dataframe-csv"),
-            
+            dcc.Download(id="download-dataframe-csv"),            
 
             # Modal for settings popup
             dbc.Modal(
@@ -603,11 +602,12 @@ def update_table_display(page_current, page_size, sort_by, filter_query, visible
 @dash_app.callback(
     Output("download-dataframe-csv", "data"),
     Input("download-button", "n_clicks"),
+    Input("USIdownload-button", "n_clicks"),
     State("data-table", "filter_query"),
     State("data-table", "columns"),
     prevent_initial_call=True
 )
-def download_filtered_data(n_clicks, filter_query, visible_columns):
+def download_filtered_data(n_clicks, n_clicks2, filter_query, visible_columns):
     if n_clicks is None:
         raise PreventUpdate
 
@@ -615,7 +615,19 @@ def download_filtered_data(n_clicks, filter_query, visible_columns):
     df_redu = _load_redu_sampledata()
     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
+
+    # checking who is the trigger
+    ctx = callback_context
+    if ctx.triggered[0]['prop_id'].split('.')[0] == 'USIdownload-button':
+
+        # rename USI to usi
+        df_redu_filtered = df_redu_filtered.rename(columns={'USI': 'usi'})
+
+        df_redu_filtered = df_redu_filtered[['usi']]
+        return dcc.send_data_frame(df_redu_filtered.to_csv, "usis.csv", index=False)
+
     return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
+
 
 
 # # Callbacks for opening and closing the modal
