@@ -508,12 +508,6 @@ def populate_filters(n_clicks_mzml,
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    print('current columns are', file=sys.stderr, flush=True)
-    print(current_columns, file=sys.stderr, flush=True)
-
-    print('hidden columns are', file=sys.stderr, flush=True)
-    print(hidden_columns, file=sys.stderr, flush=True)
-
     # Ensure the USI column is visible
     columns_to_show = [col for col in current_columns if col['id'] not in hidden_columns]
 
@@ -678,14 +672,10 @@ def download_filtered_data(n_clicks, n_clicks2, filter_query, visible_columns):
     # checking who is the trigger
     ctx = callback_context
 
-    print(ctx.triggered[0]['prop_id'].split('.'), file=sys.stderr, flush=True)
-
     if ctx.triggered[0]['prop_id'].split('.')[0] == 'USIdownload-button':
 
         # rename USI to usi
         df_redu_filtered = df_redu_filtered.rename(columns={'USI': 'usi'})
-
-        print(df_redu_filtered)
 
         df_redu_filtered = df_redu_filtered[['usi']]
         return dcc.send_data_frame(df_redu_filtered.to_csv, "usis.csv", index=False)
