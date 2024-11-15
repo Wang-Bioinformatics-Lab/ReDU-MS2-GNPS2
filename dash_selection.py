@@ -7,6 +7,7 @@ from dash.exceptions import PreventUpdate
 import pandas as pd
 import re
 import math
+import sys
 import json
 
 from app import app
@@ -108,7 +109,7 @@ navbar = dbc.Navbar(
                 dbc.NavItem(
                     html.A(
                         "ReDU Dashboard - Documentation",
-                        href="https://mwang87.github.io/ReDU-MS2-Documentation/",
+                        href="https://wang-bioinformatics-lab.github.io/GNPS2_Documentation/ReDU_overview/",
                         target="_blank",
                         className="nav-link",
                         style={"fontSize": "20px", "margin-right": "100px"}
@@ -157,6 +158,8 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 dbc.Button("Homo sapiens and Mus but no Mus muscuslus", id="example-filter-complex", color="link"),
                 html.Br(),
                 dbc.Button("Blood Samples from Rattus norvegicus", id="example-filter-multi", color="link"),
+                html.Br(),
+                dbc.Button("Samples with RP-LC, hydrophobic extraction and MS2 scans", id="example-filter-lipids", color="link"),
             ], className='mb-4'),
         ], width=3, className='mt-4'),  # Add top margin here
 
@@ -204,9 +207,9 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 [
                     dbc.Col(
                         [
-                            html.H3(['Filter Table'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
+                            html.H4(['Filter Table'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
                             dbc.Button("Subset Table to mz(X)ML files", id="subset-mzml-button", color="info",
-                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"}),
+                                       className="mb-2", style={"width": "100%", "height": "23%", "text-align": "center"}),
                             html.P(['Or use the column filters below,..'],
                                    className='text-center mb-4', style={'fontSize': '18px'})
                             # dbc.Button("Reset All Filters", id="reset-filters-button", color="info",
@@ -217,29 +220,31 @@ panredu_layout = dbc.Container(fluid=True, children=[
                     ),
                     dbc.Col(
                         [
-                            html.H3(['Download selection'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
-                            dbc.Button("Download Filtered Table", id="download-button", color="warning",
-                                       className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})#,
-                            # dbc.Button("Copy Filtered USIs for Analysis", id="copy-button", color="warning",
-                            #            className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})
+                            html.H4(['Download Filtered Subset'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
+                            dbc.Button("ReDU Table", id="download-button", color="warning",
+                                       className="mb-2", style={"width": "100%", "height": "23%", "text-align": "center"}),
+                            dbc.Button("USIs for Batch Processing/Download", id="USIdownload-button", color="warning",
+                                       className="mb-2", style={"width": "100%", "height": "23%", "text-align": "center"},
+                                       href="https://github.com/Wang-Bioinformatics-Lab/downloadpublicdata",
+                                       target="_blank")
                         ],
                         width=3, className="d-flex flex-column align-items-start justify-content-start",
                         style={"height": "200px"}
                     ),
                     dbc.Col(
                         [
-                            html.H3(['Downstream tooling'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
-                            dbc.Button("USIs --> Molecular Networking", id="mn-button", color="primary",
+                            html.H4(['Process Selected Files'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
+                            dbc.Button("View/Download Raw Data in Browser", id="dashboard-button", color="primary",
+                                       className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
+                                       href="https://dashboard.gnps2.org/",
+                                       target="_blank"),
+                            dbc.Button("Molecular Networking/Library Matching", id="mn-button", color="primary",
                                        className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
                                        href="https://gnps2.org/workflowinput?workflowname=classical_networking_workflow",
                                        target="_blank"),
-                            dbc.Button("USIs --> MassQL", id="massql-button", color="primary",
+                            dbc.Button("MassQL/Fragmentation Rule Search", id="massql-button", color="primary",
                                        className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
                                        href="https://gnps2.org/workflowinput?workflowname=massql_workflow",
-                                       target="_blank"),
-                            dbc.Button("USIs --> Raw Data Download", id="USIdownload-button", color="primary",
-                                       className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
-                                       href="https://github.com/Wang-Bioinformatics-Lab/downloadpublicdata",
                                        target="_blank")
                         ],
                         width=3, className="d-flex flex-column align-items-start justify-content-around",
@@ -259,6 +264,7 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 page_current=0,
                 page_size=10,
                 page_action='custom',
+                row_selectable='multiple',
                 # page_action='custom',
                 filter_action='custom',
                 # filter_action='native',
@@ -470,7 +476,7 @@ def update_summary_stats(n_clicks):
 
 
 @dash_app.callback(
-    Output("data-table", "columns"),
+    Output("data-table", "hidden_columns"),
     Output("data-table", "filter_query"),
     Input("subset-mzml-button", "n_clicks"),
     State("data-table", "filter_query"),
@@ -481,6 +487,7 @@ def update_summary_stats(n_clicks):
     Input('example-filter-orbitrap', 'n_clicks'),
     Input('example-filter-complex', 'n_clicks'),
     Input('example-filter-multi', 'n_clicks'),
+    Input('example-filter-lipids', 'n_clicks'),
     prevent_initial_call=True
 )
 def populate_filters(n_clicks_mzml, 
@@ -491,6 +498,7 @@ def populate_filters(n_clicks_mzml,
                      plant_clicks,
                      orbitrap_clicks,
                      complex_clicks,
+                     lipids_clicks,
                      multi_clicks):
 
 
@@ -500,34 +508,77 @@ def populate_filters(n_clicks_mzml,
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
+    print('current columns are', file=sys.stderr, flush=True)
+    print(current_columns, file=sys.stderr, flush=True)
+
+    print('hidden columns are', file=sys.stderr, flush=True)
+    print(hidden_columns, file=sys.stderr, flush=True)
+
     # Ensure the USI column is visible
     columns_to_show = [col for col in current_columns if col['id'] not in hidden_columns]
+
+
 
     if triggered_id == 'subset-mzml-button':
         new_condition = '{USI} contains ".(mzML|mzXML)$"'
         out_condition = f"{old_condition} && {new_condition}" if old_condition else new_condition
 
+        if 'USI' in hidden_columns:
+            hidden_columns.remove('USI')
+
+
     elif triggered_id == 'example-filter-human':
         out_condition = '{NCBITaxonomy} contains "Homo sapiens"'
+
+        if 'NCBITaxonomy' in hidden_columns:
+            hidden_columns.remove('NCBITaxonomy')        
 
     elif triggered_id == 'example-filter-plant':
         out_condition = '{SampleType} contains "Plant"'
 
+        if 'SampleType' in hidden_columns:
+            hidden_columns.remove('SampleType')    
+
     elif triggered_id == 'example-filter-orbitrap':
         out_condition = '{MassSpectrometer} contains "(Orbitrap|Exactive|Exploris|Astral)"'
 
+        if 'MassSpectrometer' in hidden_columns:
+            hidden_columns.remove('MassSpectrometer')    
+
     elif triggered_id == 'example-filter-complex':
         out_condition = '{NCBITaxonomy} contains "(Homo|Mus)(?!.*musculus)"'
+        
+        if 'NCBITaxonomy' in hidden_columns:
+            hidden_columns.remove('NCBITaxonomy')    
+
 
     elif triggered_id == 'example-filter-multi':
         out_condition = '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'
+
+        if 'UBERONBodyPartName' in hidden_columns:
+            hidden_columns.remove('UBERONBodyPartName')
+
+        if 'NCBITaxonomy' in hidden_columns:
+            hidden_columns.remove('NCBITaxonomy')
+
+    elif triggered_id == 'example-filter-lipids':
+        out_condition = '{ChromatographyAndPhase} contains "reverse phase" && {SampleExtractionMethod} contains "(butanol|dichloromethane|isopropanol|methyltertbutylether)" && {MS2spectra_count} > 0'
+
+        if 'ChromatographyAndPhase' in hidden_columns:
+            hidden_columns.remove('ChromatographyAndPhase')
+
+        if 'SampleExtractionMethod' in hidden_columns:
+            hidden_columns.remove('SampleExtractionMethod')
+
+        if 'MS2spectra_count' in hidden_columns:
+            hidden_columns.remove('MS2spectra_count')
         
     else:
         out_condition = old_condition
 
-    print(f"we are trying to update the text box with {out_condition}")
 
-    return columns_to_show, out_condition
+
+    return hidden_columns, out_condition
 
 
 
@@ -538,15 +589,20 @@ def populate_filters(n_clicks_mzml,
     Output("page-count", "children"),
     Output("mn-button", "href"),
     Output("massql-button", "href"),
+    Output("dashboard-button", "href"),
     Input("data-table", "page_current"),
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
     Input("data-table", "filter_query"),
+    Input('data-table', 'selected_rows'),
     State("data-table", "columns")
 )
-def update_table_display(page_current, page_size, sort_by, filter_query, visible_columns):
+def update_table_display(page_current, page_size, sort_by, filter_query, selected_rows, visible_columns):
+
+
     # Reload the base dataset from disk
     df_redu = _load_redu_sampledata()
+
 
     # Apply filters
     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
@@ -573,30 +629,34 @@ def update_table_display(page_current, page_size, sort_by, filter_query, visible
     # Convert paginated data to dictionary format for DataTable
     paginated_data_dict = paginated_data.to_dict('records')
 
-    # Here we will take the first 50 records for linkouts for GNPS2 Analysis
-    gnps_linkout_data_df = df_redu_filtered.head(50)
-    # getting the USIs
-    linkout_usis = gnps_linkout_data_df['USI'].tolist()
-
-    # GNPS2 Networking URL 
+    # dashboard href
     networking_gnps2_url = "https://gnps2.org/workflowinput?workflowname=classical_networking_workflow"
-    hash_params = {
-        "usi": "\n".join(linkout_usis),
-    }
-
-    networking_gnps2_url = networking_gnps2_url + "#" + json.dumps(hash_params)
-
-    # massql href
     massql_gnps2_url = "https://gnps2.org/workflowinput?workflowname=massql_workflow"
-    massql_gnps2_url = massql_gnps2_url + "#" + json.dumps(hash_params)
+    dashboard_gnps2_url = "https://dashboard.gnps2.org/"
+    if selected_rows:
+        params = "\n".join(paginated_data_dict[i]['USI'] for i in selected_rows)
 
+        hash_params = {
+            "usi": params,
+        }
+
+        massql_gnps2_url = massql_gnps2_url + "#" + json.dumps(hash_params)
+        networking_gnps2_url = networking_gnps2_url + "#" + json.dumps(hash_params)
+
+        dashboard_params = {
+            "usi": params,
+            "usi2": ""
+        }
+
+        dashboard_gnps2_url = dashboard_gnps2_url + "#" + json.dumps(dashboard_params)
 
 
     return  paginated_data_dict, \
             rows_remaining_text, \
             page_info, \
             networking_gnps2_url, \
-            massql_gnps2_url
+            massql_gnps2_url, \
+            dashboard_gnps2_url
 
 
 @dash_app.callback(
@@ -608,20 +668,24 @@ def update_table_display(page_current, page_size, sort_by, filter_query, visible
     prevent_initial_call=True
 )
 def download_filtered_data(n_clicks, n_clicks2, filter_query, visible_columns):
-    if n_clicks is None:
+    if not n_clicks and not n_clicks2:
         raise PreventUpdate
 
     # Reload and filter data on-demand
     df_redu = _load_redu_sampledata()
     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
-
     # checking who is the trigger
     ctx = callback_context
+
+    print(ctx.triggered[0]['prop_id'].split('.'), file=sys.stderr, flush=True)
+
     if ctx.triggered[0]['prop_id'].split('.')[0] == 'USIdownload-button':
 
         # rename USI to usi
         df_redu_filtered = df_redu_filtered.rename(columns={'USI': 'usi'})
+
+        print(df_redu_filtered)
 
         df_redu_filtered = df_redu_filtered[['usi']]
         return dcc.send_data_frame(df_redu_filtered.to_csv, "usis.csv", index=False)

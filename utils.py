@@ -28,6 +28,7 @@ def _load_redu_sampledata():
     else:
         df_redu = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep='\t')
         df_redu['YearOfAnalysis'] = df_redu['YearOfAnalysis'].astype(str)
+        df_redu['MS2spectra_count'] = df_redu['MS2spectra_count'].astype(int)
 
         df_redu.to_feather(path_to_binary_version)
 
