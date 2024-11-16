@@ -16,10 +16,14 @@ from utils import _load_redu_sampledata, _metadata_last_modified
 
 def _filter_redu_sampledata(redu_df, filter_query=None):
 
+    print(filter_query, file=sys.stderr, flush=True)
+
     if filter_query:
         filtering_expressions = filter_query.split(' && ')
         for filter_part in filtering_expressions:
             col_name, operator, value = split_filter_part(filter_part)
+            print('col_name, operator, value', file=sys.stderr, flush=True)
+            print(col_name, operator, value, file=sys.stderr, flush=True)
             if operator and col_name in redu_df.columns:
                 # Apply operator logic as previously defined
                 if operator == 'contains':
@@ -28,20 +32,20 @@ def _filter_redu_sampledata(redu_df, filter_query=None):
                 if operator == 'scontains':
                     redu_df = redu_df[
                         redu_df[col_name].astype(str).str.contains(value, case=True, na=False, regex=True)]
-                elif operator == '=':
+                elif operator == '=' or operator == 's=':
                     redu_df = redu_df[redu_df[col_name] == value]
-                elif operator == '!=':
+                elif operator == '!=' or operator == 's!=':
                     redu_df = redu_df[redu_df[col_name] != value]
-                elif operator == '<':
+                elif operator == '<' or operator == 's<':
                     redu_df = redu_df[
                         pd.to_numeric(redu_df[col_name], errors='coerce') < float(value)]
-                elif operator == '<=':
+                elif operator == '<=' or operator == 's<=':
                     redu_df = redu_df[
                         pd.to_numeric(redu_df[col_name], errors='coerce') <= float(value)]
-                elif operator == '>':
+                elif operator == '>' or operator == 's>':
                     redu_df = redu_df[
                         pd.to_numeric(redu_df[col_name], errors='coerce') > float(value)]
-                elif operator == '>=':
+                elif operator == '>='  or operator == 's>=':
                     redu_df = redu_df[
                         pd.to_numeric(redu_df[col_name], errors='coerce') >= float(value)]
 
@@ -377,7 +381,15 @@ dash_app.layout = html.Div([
 
 # Helper function for parsing filtering expressions
 def split_filter_part(filter_part):
+
+    print(filter_part, file=sys.stderr, flush=True)
     operators = [
+        's>=',
+        's<=',
+        's>',
+        's<',
+        's!=',
+        's=',
         '>=',
         '<=',
         '>',
@@ -387,10 +399,6 @@ def split_filter_part(filter_part):
         'contains',
         'scontains',
         'datestartswith',
-        'sw',
-        'ew',
-        'in',
-        'nin',
     ]
     for operator in operators:
         regex = r'\{(?P<col_name>[^\}]+)\} ' + re.escape(operator) + r' "?(.+?)"?$'
@@ -400,6 +408,8 @@ def split_filter_part(filter_part):
             col_name = match.group('col_name')
             value = match.group(2)
             operator = operator.strip()
+
+            print(col_name, operator, value, file=sys.stderr, flush=True)
             return col_name, operator, value
     return None, None, None
 
@@ -508,10 +518,6 @@ def populate_filters(n_clicks_mzml,
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    # Ensure the USI column is visible
-    columns_to_show = [col for col in current_columns if col['id'] not in hidden_columns]
-
-
 
     if triggered_id == 'subset-mzml-button':
         new_condition = '{USI} contains ".(mzML|mzXML)$"'
@@ -544,7 +550,6 @@ def populate_filters(n_clicks_mzml,
         
         if 'NCBITaxonomy' in hidden_columns:
             hidden_columns.remove('NCBITaxonomy')    
-
 
     elif triggered_id == 'example-filter-multi':
         out_condition = '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'
@@ -593,6 +598,8 @@ def populate_filters(n_clicks_mzml,
 )
 def update_table_display(page_current, page_size, sort_by, filter_query, selected_rows, visible_columns):
 
+    print('first filter state', file=sys.stderr, flush=True)
+    print(filter_query, file=sys.stderr, flush=True)
 
     # Reload the base dataset from disk
     df_redu = _load_redu_sampledata()
@@ -681,20 +688,6 @@ def download_filtered_data(n_clicks, n_clicks2, filter_query, visible_columns):
         return dcc.send_data_frame(df_redu_filtered.to_csv, "usis.csv", index=False)
 
     return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
-
-
-
-# # Callbacks for opening and closing the modal
-# @dash_app.callback(
-#     Output("fasstmasst-modal", "is_open"),
-#     [Input("open-fasstmasst-button", "n_clicks"), Input("submit-fasstmasst", "n_clicks")],
-#     [State("fasstmasst-modal", "is_open")],
-# )
-# def toggle_modal(open_click, submit_click, is_open):
-#     if open_click or submit_click:
-#         return not is_open
-#     return is_open
-
 
 
 if __name__ == '__main__':
