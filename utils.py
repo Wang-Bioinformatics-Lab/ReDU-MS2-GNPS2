@@ -32,6 +32,9 @@ def _load_redu_sampledata():
 
         # making nan or inf to -1 in the MS2spectra_count column
         df_redu['MS2spectra_count'] = df_redu['MS2spectra_count'].replace([np.inf, -np.inf], -1)
+        # making nan to -1
+        df_redu['MS2spectra_count'] = df_redu['MS2spectra_count'].fillna(-1)
+        # casting to int
         df_redu['MS2spectra_count'] = df_redu['MS2spectra_count'].astype(int)
 
         df_redu.to_feather(path_to_binary_version)
