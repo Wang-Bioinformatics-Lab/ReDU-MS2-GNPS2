@@ -79,14 +79,14 @@ hidden_columns = [col for col in all_columns_ordered if col not in default_colum
 
 
 # Make logo path
-image_url = dash_app.get_asset_url("ReDU_logo_with_url.PNG")
+image_url = dash_app.get_asset_url("panReDU_logo.PNG")
 
 
 # Create the navigation menu with the logo
 navbar = dbc.Navbar(
     dbc.Container([
         html.A(
-            html.Img(src=dash_app.get_asset_url("ReDU_logo_with_url.png"), height="80px", style={"padding-right": "15px"}),
+            html.Img(src=dash_app.get_asset_url("panReDU_logo.png"), height="80px", style={"padding-right": "15px"}),
             href="/",
             style={"textDecoration": "none"}
         ),
@@ -251,6 +251,15 @@ panredu_layout = dbc.Container(fluid=True, children=[
                         ],
                         width=3, className="d-flex flex-column align-items-start justify-content-around",
                         style={"height": "200px"}
+                    ),
+                    dbc.Col(
+                        [
+                            dcc.Loading(
+                                id="network-link-button",
+                                children=[html.Div([html.Div(id="loading-output-232")])],
+                                type="default",
+                            )
+                        ]
                     )
                 ],
                 className="mb-2 mt-3"
@@ -583,14 +592,16 @@ def populate_filters(n_clicks_mzml,
     Output("mn-button", "href"),
     Output("massql-button", "href"),
     Output("dashboard-button", "href"),
+    Output("loading-output-232", "children"),
     Input("data-table", "page_current"),
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
     Input("data-table", "filter_query"),
     Input('data-table', 'selected_rows'),
+    Input("network-link-button", "n_clicks"),
     State("data-table", "columns")
 )
-def update_table_display(page_current, page_size, sort_by, filter_query, selected_rows, visible_columns):
+def update_table_display(page_current, page_size, sort_by, filter_query, selected_rows, visible_columns, n_clicks):
 
     print('first filter state', file=sys.stderr, flush=True)
     print(filter_query, file=sys.stderr, flush=True)
@@ -648,7 +659,8 @@ def update_table_display(page_current, page_size, sort_by, filter_query, selecte
             page_info, \
             networking_gnps2_url, \
             massql_gnps2_url, \
-            dashboard_gnps2_url
+            dashboard_gnps2_url, \
+            ""
 
 
 @dash_app.callback(
