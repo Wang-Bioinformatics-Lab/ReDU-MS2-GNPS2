@@ -79,14 +79,14 @@ hidden_columns = [col for col in all_columns_ordered if col not in default_colum
 
 
 # Make logo path
-image_url = dash_app.get_asset_url("ReDU_logo_with_url.PNG")
+image_url = dash_app.get_asset_url("panReDU_logo.PNG")
 
 
 # Create the navigation menu with the logo
 navbar = dbc.Navbar(
     dbc.Container([
         html.A(
-            html.Img(src=dash_app.get_asset_url("ReDU_logo_with_url.png"), height="80px", style={"padding-right": "15px"}),
+            html.Img(src=dash_app.get_asset_url("panReDU_logo.png"), height="80px", style={"padding-right": "15px"}),
             href="/",
             style={"textDecoration": "none"}
         ),
@@ -189,7 +189,7 @@ panredu_layout = dbc.Container(fluid=True, children=[
                         html.Br(), html.Br(),
                         'Please ',
                         html.A('contribute your data',
-                               href='https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?usp=sharing',
+                               href='https://deposit.redu.gnps2.org/',
                                target='_blank', style={'fontSize': '18px'}),
                         ' to grow this public resource and bring our field forward!'
                     ], className='text-center mb-4', style={'fontSize': '18px'}),
@@ -216,8 +216,6 @@ panredu_layout = dbc.Container(fluid=True, children=[
                                        className="mb-2", style={"width": "100%", "height": "23%", "text-align": "center"}),
                             html.P(['Or use the column filters below,..'],
                                    className='text-center mb-4', style={'fontSize': '18px'})
-                            # dbc.Button("Reset All Filters", id="reset-filters-button", color="info",
-                            #            className="mb-2", style={"width": "100%", "height": "22%", "text-align": "center"})
                         ],
                         width=3, className="d-flex flex-column align-items-start justify-content-start",
                         style={"height": "200px"}
@@ -253,6 +251,15 @@ panredu_layout = dbc.Container(fluid=True, children=[
                         ],
                         width=3, className="d-flex flex-column align-items-start justify-content-around",
                         style={"height": "200px"}
+                    ),
+                    dbc.Col(
+                        [
+                            dcc.Loading(
+                                id="network-link-button",
+                                children=[html.Div([html.Div(id="loading-output-232")])],
+                                type="default",
+                            )
+                        ]
                     )
                 ],
                 className="mb-2 mt-3"
@@ -269,9 +276,7 @@ panredu_layout = dbc.Container(fluid=True, children=[
                 page_size=10,
                 page_action='custom',
                 row_selectable='multiple',
-                # page_action='custom',
                 filter_action='custom',
-                # filter_action='native',
                 filter_query='',
                 filter_options={"placeholder_text": "Filter column..."},
                 sort_action='custom',
@@ -420,26 +425,25 @@ def split_filter_part(filter_part):
     Input("data-table", "page_current")
 )
 def update_summary_stats(n_clicks):
-    # Load the full dataset
+    
     df_redu = _load_redu_sampledata()
 
-    # Getting the last modified date of the file
+
     last_modified = _metadata_last_modified()
 
-    # convert to string without the seconds but with timezone
+
     last_modified = last_modified.strftime("%Y-%m-%d %H:%M %Z")
 
-    # Calculate statistics
+
     total_files = len(df_redu)
     unique_datasets = df_redu['ATTRIBUTE_DatasetAccession'].nunique()
 
-    # Files by DataSource
+
     data_source_counts = df_redu['DataSource'].value_counts().to_dict()
 
-    # Represented Taxonomies
-    unique_taxonomies = df_redu['NCBITaxonomy'].nunique() - 1  # Adjusted based on your original static values
 
-    # NCBI Divisions
+    unique_taxonomies = df_redu['NCBITaxonomy'].nunique() - 1  
+
     unique_divisions = [
         (division, taxonomies) for division, taxonomies in df_redu[df_redu['NCBIDivision'].notna()]
         .groupby('NCBIDivision')['NCBITaxonomy']
@@ -534,7 +538,7 @@ def populate_filters(n_clicks_mzml,
             hidden_columns.remove('NCBITaxonomy')        
 
     elif triggered_id == 'example-filter-plant':
-        out_condition = '{SampleType} contains "Plant"'
+        out_condition = '{SampleType} contains "plant"'
 
         if 'SampleType' in hidden_columns:
             hidden_columns.remove('SampleType')    
@@ -581,7 +585,6 @@ def populate_filters(n_clicks_mzml,
 
 
 
-# Continue with other callbacks
 @dash_app.callback(
     Output("data-table", "data"),
     Output("rows-remaining", "children"),
@@ -589,23 +592,22 @@ def populate_filters(n_clicks_mzml,
     Output("mn-button", "href"),
     Output("massql-button", "href"),
     Output("dashboard-button", "href"),
+    Output("loading-output-232", "children"),
     Input("data-table", "page_current"),
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
     Input("data-table", "filter_query"),
     Input('data-table', 'selected_rows'),
+    Input("network-link-button", "n_clicks"),
     State("data-table", "columns")
 )
-def update_table_display(page_current, page_size, sort_by, filter_query, selected_rows, visible_columns):
+def update_table_display(page_current, page_size, sort_by, filter_query, selected_rows, visible_columns, n_clicks):
 
     print('first filter state', file=sys.stderr, flush=True)
     print(filter_query, file=sys.stderr, flush=True)
 
-    # Reload the base dataset from disk
     df_redu = _load_redu_sampledata()
 
-
-    # Apply filters
     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
     # Sorting
@@ -630,7 +632,7 @@ def update_table_display(page_current, page_size, sort_by, filter_query, selecte
     # Convert paginated data to dictionary format for DataTable
     paginated_data_dict = paginated_data.to_dict('records')
 
-    # dashboard href
+
     networking_gnps2_url = "https://gnps2.org/workflowinput?workflowname=classical_networking_workflow"
     massql_gnps2_url = "https://gnps2.org/workflowinput?workflowname=massql_workflow"
     dashboard_gnps2_url = "https://dashboard.gnps2.org/"
@@ -657,7 +659,8 @@ def update_table_display(page_current, page_size, sort_by, filter_query, selecte
             page_info, \
             networking_gnps2_url, \
             massql_gnps2_url, \
-            dashboard_gnps2_url
+            dashboard_gnps2_url, \
+            ""
 
 
 @dash_app.callback(
@@ -672,16 +675,13 @@ def download_filtered_data(n_clicks, n_clicks2, filter_query, visible_columns):
     if not n_clicks and not n_clicks2:
         raise PreventUpdate
 
-    # Reload and filter data on-demand
     df_redu = _load_redu_sampledata()
     df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
 
-    # checking who is the trigger
     ctx = callback_context
 
     if ctx.triggered[0]['prop_id'].split('.')[0] == 'USIdownload-button':
 
-        # rename USI to usi
         df_redu_filtered = df_redu_filtered.rename(columns={'USI': 'usi'})
 
         df_redu_filtered = df_redu_filtered[['usi']]
