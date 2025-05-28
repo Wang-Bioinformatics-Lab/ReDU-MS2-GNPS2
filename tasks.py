@@ -15,7 +15,7 @@ def task_computeheartbeat():
 def tasks_generate_metadata():
     print("UP", file=sys.stderr, flush=True)
 
-    cmd = "cd /app/workflows/PublicDataset_ReDU_Metadata_Workflow && \
+    cmd = "cd /app/workflows/PublicDataset_ReDU_Metadata_Workflow && export MAMBA_ALWAYS_YES='true' &&  \
         nextflow run ./nf_workflow.nf \
         --old_redu ./nf_output/merged_metadata.tsv \
         -c ./nextflow.config > nextflowstdout.log"
