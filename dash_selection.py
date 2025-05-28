@@ -381,7 +381,29 @@ dash_app.index_string = """<!DOCTYPE html>
 dash_app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     navbar,
-    panredu_layout
+    panredu_layout,
+    html.Footer(
+        dbc.Container(
+            [
+                html.P(
+                    "Please cite the following article: ",
+                    style={'fontSize': '14px'}
+                ),
+                html.P(
+                    "El Abiead Y., et al. Enabling pan-repository reanalysis for big data science of public metabolomics data. Nat Commun 16, 4838 (2025).",
+                    style={'fontSize': '14px'}
+                ),
+                html.A(
+                    "https://doi.org/10.1038/s41467-025-60067-y",
+                    href="https://doi.org/10.1038/s41467-025-60067-y",
+                    target="_blank",
+                    style={'fontSize': '14px', 'textDecoration': 'underline'}
+                )
+            ],
+            fluid=True,
+            style={'textAlign': 'center', 'padding': '20px', 'backgroundColor': '#f8f9fa', 'marginTop': '30px'}
+        )
+    )
 ])
 
 
@@ -464,6 +486,25 @@ def update_summary_stats(n_clicks):
     mouse_diseases = df_redu.loc[df_redu['NCBITaxonomy'].isin(
         ['10088|Mus', '10090|Mus musculus']), 'DOIDCommonName'].nunique() - 1
 
+
+    # Environmental data (from column ENVOEnvironmentMaterial)
+    env_counts = df_redu['ENVOEnvironmentMaterial'].value_counts().to_dict()
+
+
+    # sum up counts for "river water", "surface water", and "ocean water", as "surface water"
+    surface_water_count = sum(env_counts.get(key, 0) for key in ['river water', 'surface water', 'ocean water'])
+    groundwater_count = sum(env_counts.get(key, 0) for key in ['groundwater'])
+    waste_water_count = sum(env_counts.get(key, 0) for key in ['waste water', 'industrial wastewater', 'treated wastewater'])
+    sediment_soil_count = sum(env_counts.get(key, 0) for key in ['sediment', 'soil'])
+
+    # all other values should be summed up as "other"
+    other_env_count = sum(
+        count for key, count in env_counts.items() if key not in ['river water', 'surface water', 'ocean water',
+                                                                  'groundwater', 'waste water', 'industrial wastewater',
+                                                                  'treated wastewater', 'sediment', 'soil', 'missing value']
+    )
+    
+
     # Compose card children based on these values
     stats_card_content = [
         html.H5(f"Total Files: {total_files:,}"),
@@ -483,6 +524,16 @@ def update_summary_stats(n_clicks):
         html.Ul([
             html.Li(f"Unique Bodyparts: {mouse_bodyparts}"),
             html.Li(f"Unique Diseases: {mouse_diseases}")
+        ]),
+        html.H5('Environmental data:'),
+        
+        html.Ul([
+            html.Li(f"Surface water: {surface_water_count}"),
+            html.Li(f"Groundwater: {groundwater_count}"),
+            html.Li(f"Waste water: {waste_water_count}"),
+            html.Li(f"Sediment/Soil: {sediment_soil_count}"),
+            html.Li(f"Other: {other_env_count}")
+
         ]),
         html.Hr(),
         html.Div("Last Modified - {}".format(last_modified))
