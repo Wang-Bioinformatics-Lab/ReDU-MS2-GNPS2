@@ -16,6 +16,15 @@ services:
       - nginx-net
     restart: unless-stopped
     command: /app/run_server.sh
+    logging:
+      driver: json-file
+      options:
+          max-size: "10m"      # Maximum size of a single log file
+          max-file: "3"        # Maximum number of log files to keep (rotates after 3 files)
+    deploy:
+      resources:
+          limits:
+              memory: "20G"
     environment:
       VIRTUAL_HOST: redu.gnps2.org
       VIRTUAL_PORT: 5000
