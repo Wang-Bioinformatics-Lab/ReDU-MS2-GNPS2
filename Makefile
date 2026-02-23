@@ -15,3 +15,6 @@ server-compose-production:
 
 attach:
 	docker exec -i -t redu-gnps2-worker /bin/bash
+
+init_submodules:
+	git submodule update --init --recursive
