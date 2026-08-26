@@ -13,6 +13,7 @@ import json
 from app import app
 
 from utils import _load_redu_sampledata, _metadata_last_modified
+from version_utils import get_versions
 
 def _filter_redu_sampledata(redu_df, filter_query=None):
 
@@ -398,6 +399,15 @@ dash_app.layout = html.Div([
                     href="https://doi.org/10.1038/s41467-025-60067-y",
                     target="_blank",
                     style={'fontSize': '14px', 'textDecoration': 'underline'}
+                ),
+                html.Div(
+                    id="version-indicator",
+                    style={
+                        'fontSize': '12px',
+                        'fontFamily': 'monospace',
+                        'color': '#6c757d',
+                        'marginTop': '14px'
+                    }
                 )
             ],
             fluid=True,
@@ -408,6 +418,30 @@ dash_app.layout = html.Div([
 
 
 
+
+
+# Resolved on every page load rather than baked into the static layout, because the
+# workflow lives on a bind mount and can be updated without restarting the container.
+@dash_app.callback(
+    Output("version-indicator", "children"),
+    Input("url", "pathname")
+)
+def update_version_indicator(_pathname):
+    versions = get_versions()
+
+    link_style = {'color': '#6c757d', 'textDecoration': 'underline'}
+
+    def _commit_link(info):
+        if info["short"] == "unknown":
+            return html.Span("unknown")
+        return html.A(info["short"], href=info["url"], target="_blank", style=link_style)
+
+    return [
+        html.Span("ReDU "),
+        _commit_link(versions["redu"]),
+        html.Span("  \u00b7  metadata workflow "),
+        _commit_link(versions["workflow"]),
+    ]
 
 
 # Helper function for parsing filtering expressions
