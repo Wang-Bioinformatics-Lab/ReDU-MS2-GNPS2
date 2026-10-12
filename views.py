@@ -61,8 +61,17 @@ def status():
     stdout_modified = os.path.getmtime("./workflows/PublicDataset_ReDU_Metadata_Workflow/nextflowstdout.log")
     stdout_modified = str(pd.to_datetime(stdout_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific'))
 
+    # Per-source row counts of the last run: a source with 0 rows "this_run" failed and
+    # is being served from earlier runs
+    try:
+        source_summary = pd.read_csv("./workflows/PublicDataset_ReDU_Metadata_Workflow/nf_output/source_summary.tsv", sep="\t")
+        source_summary = source_summary.to_dict(orient="records")
+    except Exception:
+        source_summary = []
+
     return_obj = {}
     return_obj["lastupdate"] = last_modified
+    return_obj["sources"] = source_summary
     return_obj["nextflow"] = {
         "log": nextflow_log_data,
         "log_lastupdate" : log_modified,
