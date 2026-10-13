@@ -1,0 +1,303 @@
+/* Loaded automatically by Dash from the assets folder. */
+
+body {
+    background-color: #f5f7fb;
+    color: #1f2a3d;
+}
+
+a {
+    color: #2f5f9e;
+}
+
+/* Navbar */
+
+.redu-navbar {
+    background-color: #ffffff;
+    border-bottom: 1px solid #e3e8f0;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.redu-navbar .nav-link {
+    color: #3b4a61;
+    font-size: 15px;
+}
+
+.redu-navbar .nav-link:hover {
+    color: #2f5f9e;
+}
+
+/* Header */
+
+.redu-header {
+    padding-top: 22px;
+    padding-bottom: 18px;
+}
+
+.redu-title {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.redu-lead {
+    font-size: 15px;
+    color: #4b5a72;
+    max-width: 1100px;
+    margin-bottom: 16px;
+}
+
+.redu-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.redu-tile {
+    background: #ffffff;
+    border: 1px solid #e3e8f0;
+    border-radius: 8px;
+    padding: 10px 16px;
+    min-width: 130px;
+}
+
+.redu-tile-value {
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.redu-tile-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b778c;
+}
+
+/* Cards */
+
+.card {
+    border-color: #e3e8f0;
+    border-radius: 8px;
+}
+
+.card-header {
+    background-color: #ffffff;
+    font-weight: 600;
+}
+
+.redu-section-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b778c;
+    margin-bottom: 6px;
+}
+
+/* Active filter chips */
+
+.redu-chip {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 6px;
+    background-color: #e9f0fa;
+    border: 1px solid #cbdaf0;
+    border-radius: 6px;
+    padding: 4px 4px 4px 8px;
+    font-size: 13px;
+}
+
+.redu-chip-label {
+    word-break: break-word;
+}
+
+.redu-chip-value {
+    font-family: SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+}
+
+.redu-chip-remove {
+    border: none;
+    background: transparent;
+    color: #4b5a72;
+    padding: 0 4px;
+    line-height: 1.2;
+    border-radius: 4px;
+}
+
+.redu-chip-remove:hover {
+    background-color: #cbdaf0;
+}
+
+.redu-preset {
+    text-align: left;
+    border-color: #e3e8f0;
+}
+
+/* Statistics cards under the header tiles */
+
+.redu-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+/* On phones, keep the cards in one swipeable row so the filters stay near the top */
+@media (max-width: 767px) {
+    .redu-stats {
+        grid-template-columns: none;
+        grid-auto-flow: column;
+        grid-auto-columns: 78%;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        padding-bottom: 4px;
+    }
+
+    .redu-stat-card {
+        scroll-snap-align: start;
+    }
+}
+
+.redu-stat-card {
+    background: #ffffff;
+    border: 1px solid #e3e8f0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+}
+
+.redu-stat-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b778c;
+    margin-bottom: 6px;
+}
+
+.redu-stat-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: 8px;
+    padding: 2px 0;
+}
+
+.redu-stat-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.redu-stat-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.redu-stat-bar {
+    grid-column: 1 / -1;
+    height: 3px;
+    background: #eef2f8;
+    border-radius: 2px;
+    margin-top: 2px;
+}
+
+.redu-stat-bar > div {
+    height: 100%;
+    background: #6f97cf;
+    border-radius: 2px;
+}
+
+/* Results toolbar */
+
+.redu-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.redu-result-count {
+    font-size: 16px;
+    padding-top: 4px;
+}
+
+.redu-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.redu-column-picker {
+    min-width: 260px;
+    max-width: 520px;
+    font-size: 13px;
+}
+
+.redu-share {
+    padding: 4px 9px;
+}
+
+.redu-selection-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+}
+
+.redu-selection-bar .btn.disabled,
+.redu-selection-bar .btn:disabled {
+    opacity: 0.45;
+}
+
+/* The DataTable case-sensitivity toggle is not honoured server-side (filters are
+   always case-insensitive), so hide it. */
+button[title="Toggle case sensitivity"],
+.dash-filter--case {
+    display: none !important;
+}
+
+.dash-table-container .previous-next-container {
+    float: right;
+}
+
+/* Footer */
+
+.redu-footer {
+    margin-top: 32px;
+    padding: 20px 0;
+    background-color: #ffffff;
+    border-top: 1px solid #e3e8f0;
+    text-align: center;
+    font-size: 13px;
+    color: #4b5a72;
+}
+
+.redu-version {
+    margin-top: 10px;
+    font-size: 12px;
+    font-family: SFMono-Regular, Menlo, Consolas, monospace;
+    color: #8792a6;
+}
+
+.redu-version a {
+    color: #8792a6;
+}
+
+/* Columns are chosen with the column picker above the table instead. */
+.dash-spreadsheet-menu .show-hide {
+    display: none;
+}
+
+.dash-spreadsheet-container .dash-spreadsheet-inner td.dash-select-cell,
+.dash-spreadsheet-container .dash-spreadsheet-inner th.dash-select-header {
+    min-width: 34px !important;
+    width: 34px !important;
+    text-overflow: clip !important;
+}
