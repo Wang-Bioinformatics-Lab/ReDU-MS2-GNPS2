@@ -6,7 +6,7 @@ from flask import request
 import config
 from ontology_utils import resolve_ontology
 
-black_list_attribute = ["SubjectIdentifierAsRecorded", "UniqueSubjectID", "UBERONOntologyIndex", "DOIDOntologyIndex", "ComorbidityListDOIDIndex"]
+black_list_attribute = ["SubjectIdentifierAsRecorded", "UniqueSubjectID", "UBERONOntologyIndex", "DOIDOntologyIndex", "ComorbidityListDOIDIndex", "HPOOntologyIndex", "ExposureIndex"]
 
 ##############################
 # Metadata Selector API Calls
