@@ -279,13 +279,15 @@ def _compute_overview():
         overview["sections"].append(("Files by repository", list(sources.items()), True))
 
     if has('NCBIDivision', 'NCBITaxonomy'):
-        divisions = (
-            df[df['NCBIDivision'].notna() & (df['NCBIDivision'] != 'missing value')]
-            .groupby('NCBIDivision')['NCBITaxonomy'].nunique()
-            .sort_values(ascending=False)
-        )
-        overview["sections"].append(("Taxa by NCBI division",
-                                     [(division, count) for division, count in divisions.items() if count >= 10], True))
+        known = df[df['NCBIDivision'].notna() & (df['NCBIDivision'] != 'missing value')]
+        groups = known['NCBIDivision']
+        if has('NCBIKingdom'):
+            # NCBI lumps plants and fungi into one division; split them by kingdom
+            kingdom_labels = known['NCBIKingdom'].map({'Viridiplantae': 'Plants', 'Fungi': 'Fungi'})
+            groups = kingdom_labels.where((groups == 'Plants and Fungi') & kingdom_labels.notna(), groups)
+        divisions = known.groupby(groups)['NCBITaxonomy'].nunique().sort_values(ascending=False)
+        overview["sections"].append(("Covered taxa",
+                                     list(divisions.items()), True))
 
     if has('NCBITaxonomy'):
         overview["sections"].append(("Human (Homo sapiens)",
@@ -294,18 +296,8 @@ def _compute_overview():
                                      _subject_stats(df['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus'])), False))
 
     if has('ENVOEnvironmentMaterial'):
-        env_counts = df['ENVOEnvironmentMaterial'].value_counts().to_dict()
-        env_groups = OrderedDict([
-            ("Surface water", ['river water', 'surface water', 'ocean water']),
-            ("Groundwater", ['groundwater']),
-            ("Waste water", ['waste water', 'industrial wastewater', 'treated wastewater']),
-            ("Sediment / soil", ['sediment', 'soil']),
-        ])
-        grouped = [key for keys in env_groups.values() for key in keys]
-        environment = [(label, sum(env_counts.get(k, 0) for k in keys)) for label, keys in env_groups.items()]
-        environment.append(("Other", sum(count for key, count in env_counts.items()
-                                         if key not in grouped and key != 'missing value')))
-        overview["sections"].append(("Environmental samples", environment, True))
+        environment = _real_values(df['ENVOEnvironmentMaterial']).value_counts()
+        overview["sections"].append(("Environmental samples", list(environment.items()), True))
 
     return overview
 
