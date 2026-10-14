@@ -178,6 +178,24 @@ a {
     margin-bottom: 6px;
 }
 
+/* Long lists scroll inside the card; the scrollbar stays visible so it is clear there is more */
+.redu-stat-rows {
+    max-height: 205px;
+    overflow-y: auto;
+    padding-right: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: #b9c6da transparent;
+}
+
+.redu-stat-rows::-webkit-scrollbar {
+    width: 6px;
+}
+
+.redu-stat-rows::-webkit-scrollbar-thumb {
+    background: #b9c6da;
+    border-radius: 3px;
+}
+
 .redu-stat-row {
     display: grid;
     grid-template-columns: 1fr auto;
