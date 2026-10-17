@@ -64,6 +64,44 @@ class FilterError(Exception):
     pass
 
 
+# A file of several organisms (a co-culture, a host with its parasite, a mixture, a pool of several species) has one
+# NCBITaxonomy term per organism, joined by '||' ('6613|Euprymna scolopes||312309|Aliivibrio fischeri ES114'), and
+# the NCBI rank / division / lineage columns and OpenTreeOfLifeTaxonomyID one value per organism in the same order.
+# In these columns "is" / "is not" compare a value with the cell and with each of its organisms, the suggestions and
+# the overview count organisms, and a "contains" value with '||' is read as it is written.
+MULTI_SEP = '||'
+
+
+def _is_multi_value_column(col_name):
+    return str(col_name).startswith('NCBI') or col_name == 'OpenTreeOfLifeTaxonomyID'
+
+
+def _cell_parts(cell):
+    """The organisms' values of a cell ('missing value' slots dropped), each once."""
+    return list(dict.fromkeys(p.strip() for p in str(cell).split(MULTI_SEP) if p.strip() and p.strip() != 'missing value'))
+
+
+def _cell_or_part_in(column, values):
+    """Rows (bool array) whose cell is one of values or, for a cell of several organisms, has one of them as one
+    of its organisms."""
+    values = set(values)
+    matches = column.isin(values).to_numpy().copy()
+    as_text = column.astype(str)
+    several = as_text.str.contains(MULTI_SEP, regex=False, na=False).to_numpy()
+    if several.any():
+        matches[several] = [any(p in values for p in _cell_parts(cell)) or cell in values for cell in as_text[several]]
+    return matches
+
+
+def _explode_parts(series):
+    """The values of a Series with each cell of several organisms replaced by its organisms' values."""
+    as_text = series.astype(str)
+    several = as_text.str.contains(MULTI_SEP, regex=False, na=False)
+    if not several.any():
+        return series
+    return pd.concat([series[~several], as_text[several].map(_cell_parts).explode().dropna()])
+
+
 # Operators as the DataTable writes them. Case variants carry an "s" (sensitive) or
 # "i" (insensitive) prefix and relational operators can also be typed as words
 # ("eq plant" arrives as "seq plant"). Longest first, so ">=" is not read as ">".
@@ -151,6 +189,10 @@ def _filter_redu_sampledata(redu_df, filter_query=None):
             raise FilterError(f"'is {value}' filters are not supported, use 'is blank' or a comparison")
 
         if operator == 'contains':
+            if MULTI_SEP in value:
+                # a copied value of several organisms: as a regular expression '||' would be an empty alternative
+                # that matches every row
+                value = re.escape(value)
             try:
                 re.compile(value)
             except re.error as e:
@@ -164,6 +206,9 @@ def _filter_redu_sampledata(redu_df, filter_query=None):
                     matches = (column == float(value)).to_numpy()
                 except ValueError:
                     raise FilterError(f"{col_name} is numeric, but '{value}' is not a number")
+            elif _is_multi_value_column(col_name):
+                # the cell, or one of the organisms of a cell of several
+                matches = _cell_or_part_in(column, [value])
             else:
                 matches = (column == value).to_numpy()
             mask &= matches if operator == '=' else ~matches
@@ -271,7 +316,8 @@ def _compute_overview():
     if has('ATTRIBUTE_DatasetAccession'):
         overview["datasets"] = df['ATTRIBUTE_DatasetAccession'].nunique()
     if has('NCBITaxonomy'):
-        overview["taxa"] = _real_values(df['NCBITaxonomy']).nunique()
+        # (a file of several organisms counts each of them)
+        overview["taxa"] = _real_values(_explode_parts(df['NCBITaxonomy'])).nunique()
 
     if has('DataSource'):
         sources = df['DataSource'].value_counts()
@@ -279,19 +325,28 @@ def _compute_overview():
         overview["sections"].append(("Files by repository", list(sources.items()), True))
 
     if has('NCBIDivision', 'NCBITaxonomy'):
+        pairs = df.loc[df['NCBIDivision'].notna() & (df['NCBIDivision'] != 'missing value'), ['NCBIDivision', 'NCBITaxonomy']]
+        several = pairs['NCBITaxonomy'].astype(str).str.contains(MULTI_SEP, regex=False, na=False)
+        if several.any():
+            # files of several organisms: each organism with its division (the two cells hold them in the same order)
+            split = [(d.strip(), t.strip())
+                     for division, taxon in zip(pairs.loc[several, 'NCBIDivision'].astype(str), pairs.loc[several, 'NCBITaxonomy'].astype(str))
+                     if division.count(MULTI_SEP) == taxon.count(MULTI_SEP)
+                     for d, t in zip(division.split(MULTI_SEP), taxon.split(MULTI_SEP)) if d.strip() != 'missing value']
+            pairs = pd.concat([pairs[~several], pd.DataFrame(split, columns=['NCBIDivision', 'NCBITaxonomy'])])
         divisions = (
-            df[df['NCBIDivision'].notna() & (df['NCBIDivision'] != 'missing value')]
-            .groupby('NCBIDivision')['NCBITaxonomy'].nunique()
+            pairs.groupby('NCBIDivision')['NCBITaxonomy'].nunique()
             .sort_values(ascending=False)
         )
         overview["sections"].append(("Taxa by NCBI division",
                                      [(division, count) for division, count in divisions.items() if count >= 10], True))
 
     if has('NCBITaxonomy'):
+        # (files with the organism, also among others: a pooled QC of human and other milk)
         overview["sections"].append(("Human (Homo sapiens)",
-                                     _subject_stats(df['NCBITaxonomy'] == '9606|Homo sapiens'), False))
+                                     _subject_stats(_cell_or_part_in(df['NCBITaxonomy'], ['9606|Homo sapiens'])), False))
         overview["sections"].append(("Mouse (Mus)",
-                                     _subject_stats(df['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus'])), False))
+                                     _subject_stats(_cell_or_part_in(df['NCBITaxonomy'], ['10088|Mus', '10090|Mus musculus'])), False))
 
     if has('ENVOEnvironmentMaterial'):
         env_counts = df['ENVOEnvironmentMaterial'].value_counts().to_dict()
@@ -315,7 +370,11 @@ def _column_suggestions(column):
         df = _load_redu_sampledata()
         if column not in df.columns:
             return []
-        counts = df[column].astype(str).value_counts().head(300)
+        values = df[column].astype(str)
+        if _is_multi_value_column(column):
+            # a file of several organisms counts for each of them
+            values = _explode_parts(values)
+        counts = values.value_counts().head(300)
         return [(value, count) for value, count in counts.items()]
     return _cached_by_data_version("suggestions:" + column, compute)
 
@@ -455,7 +514,9 @@ def _filter_panel():
             html.Datalist(id="builder-suggestions"),
             dbc.Button([html.I(className="bi bi-plus-lg me-1"), "Add filter"], id="builder-add",
                        color="primary", size="sm", className="w-100", disabled=True),
-            dbc.FormText("Pick a value from the suggestions, or type a regular expression with \"contains\".",
+            dbc.FormText("Pick a value from the suggestions, or type a regular expression with \"contains\". "
+                         "Files of several organisms list them separated by || (NCBITaxonomy and the NCBI columns); "
+                         "\"is\" matches each of them.",
                          className="d-block mt-1"),
 
             html.Hr(),
