@@ -1,362 +1,625 @@
-import requests
 import os
 import dash
-from dash import dcc, html, dash_table, Input, Output, State, callback_context, Dash
+from dash import dcc, html, dash_table, Input, Output, State, ALL, callback_context
 import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
 import pandas as pd
+import numpy as np
 import re
 import math
-import sys
 import json
+import threading
+import urllib.parse
+from collections import OrderedDict
 
 from app import app
 
-from utils import _load_redu_sampledata, _metadata_last_modified
+from utils import _load_redu_sampledata, _metadata_last_modified, _metadata_mtime
 from version_utils import get_versions
 
+
+# How many files can be handed to a GNPS2 workflow from one selection. The USIs travel
+# in the URL hash, so this keeps the generated links to a size browsers accept.
+MAX_SELECTION = 500
+
+GNPS2_NETWORKING_URL = "https://gnps2.org/workflowinput?workflowname=classical_networking_workflow"
+GNPS2_MASSQL_URL = "https://gnps2.org/workflowinput?workflowname=massql_workflow"
+GNPS2_DASHBOARD_URL = "https://dashboard.gnps2.org/"
+
+MZML_CONDITION = '{USI} contains ".(mzML|mzXML)$"'
+
+# Example filters. Each one replaces the current filter and makes sure the columns it
+# filters on are visible, so the user can see why rows matched.
+PRESETS = [
+    {"label": "Human samples",
+     "query": '{NCBITaxonomy} contains "Homo sapiens"'},
+    {"label": "Plant samples",
+     "query": '{SampleType} = "plant"'},
+    {"label": "Orbitrap instruments",
+     "query": '{MassSpectrometer} contains "(Orbitrap|Exactive|Exploris|Astral)"'},
+    {"label": "Human & mouse genus, not Mus musculus",
+     "query": '{NCBITaxonomy} contains "(Homo|Mus)(?!.*musculus)"'},
+    {"label": "Rat blood",
+     "query": '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'},
+    {"label": "Lipidomics: RP-LC, hydrophobic extraction, has MS2",
+     "query": '{ChromatographyAndPhase} contains "reverse phase" && {SampleExtractionMethod} contains "(butanol|dichloromethane|isopropanol|methyltertbutylether)" && {MS2spectra_count} > 0'},
+]
+
+OPERATOR_OPTIONS = [
+    {"label": "is", "value": "="},
+    {"label": "is not", "value": "!="},
+    {"label": "contains (regex)", "value": "contains"},
+    {"label": ">", "value": ">"},
+    {"label": ">=", "value": ">="},
+    {"label": "<", "value": "<"},
+    {"label": "<=", "value": "<="},
+]
+
+
+##############################
+# Filtering
+##############################
+
+class FilterError(Exception):
+    pass
+
+
+# Operators as the DataTable writes them. Case variants carry an "s" (sensitive) or
+# "i" (insensitive) prefix and relational operators can also be typed as words
+# ("eq plant" arrives as "seq plant"). Longest first, so ">=" is not read as ">".
+_OPERATOR_ALIASES = {
+    '>=': '>=', '<=': '<=', '!=': '!=', '>': '>', '<': '<', '=': '=',
+    'ge': '>=', 'le': '<=', 'ne': '!=', 'gt': '>', 'lt': '<', 'eq': '=',
+    'contains': 'contains', 'datestartswith': 'datestartswith',
+}
+_BINARY_FILTER = re.compile(
+    r'^\{(?P<col_name>(?:[^{}\\]|\\.)+)\} (?:[si])?(?P<operator>'
+    + '|'.join(re.escape(op) for op in sorted(_OPERATOR_ALIASES, key=len, reverse=True))
+    + r') (?P<value>.+)$'
+)
+_UNARY_FILTER = re.compile(r'^\{(?P<col_name>(?:[^{}\\]|\\.)+)\} (?:[si])?is (?P<what>\w+)$')
+
+
+def split_filter_part(filter_part):
+    """Parse one DataTable filter expression into (column, operator, value), with the
+    operator normalised to =, !=, <, <=, >, >=, contains, datestartswith or "is"."""
+    filter_part = filter_part.strip()
+    match = _BINARY_FILTER.match(filter_part)
+    if match:
+        value = match.group('value').strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'`":
+            value = value[1:-1].replace('\\' + value[0], value[0])
+        return match.group('col_name'), _OPERATOR_ALIASES[match.group('operator')], value
+    match = _UNARY_FILTER.match(filter_part)
+    if match:
+        return match.group('col_name'), 'is', match.group('what')
+    return None, None, None
+
+
+def _split_query(filter_query):
+    """Split on " && " outside of quoted values, so a value may itself contain "&&"."""
+    if not filter_query:
+        return []
+    parts, current, quote, i = [], [], None, 0
+    while i < len(filter_query):
+        char = filter_query[i]
+        if quote:
+            current.append(char)
+            if char == '\\' and i + 1 < len(filter_query):
+                current.append(filter_query[i + 1])
+                i += 1
+            elif char == quote:
+                quote = None
+        elif char in "\"'`":
+            quote = char
+            current.append(char)
+        elif filter_query.startswith(' && ', i):
+            parts.append(''.join(current))
+            current = []
+            i += 3
+        else:
+            current.append(char)
+        i += 1
+    parts.append(''.join(current))
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _join_query(parts):
+    return ' && '.join(parts)
+
+
 def _filter_redu_sampledata(redu_df, filter_query=None):
+    """Apply a DataTable filter_query. Raises FilterError with a readable message for
+    filters that cannot be applied (unknown column, bad regex, non-numeric comparison)."""
+    mask = np.ones(len(redu_df), dtype=bool)
 
-    print(filter_query, file=sys.stderr, flush=True)
+    for filter_part in _split_query(filter_query):
+        col_name, operator, value = split_filter_part(filter_part)
+        if operator is None:
+            raise FilterError(f"Could not understand the filter: {filter_part}")
+        if col_name not in redu_df.columns:
+            raise FilterError(f"Unknown column: {col_name}")
 
-    if filter_query:
-        filtering_expressions = filter_query.split(' && ')
-        for filter_part in filtering_expressions:
-            col_name, operator, value = split_filter_part(filter_part)
-            print('col_name, operator, value', file=sys.stderr, flush=True)
-            print(col_name, operator, value, file=sys.stderr, flush=True)
-            if operator and col_name in redu_df.columns:
-                # Apply operator logic as previously defined
-                if operator == 'contains':
-                    redu_df = redu_df[
-                        redu_df[col_name].astype(str).str.contains(value, case=False, na=False, regex=True)]
-                if operator == 'scontains':
-                    redu_df = redu_df[
-                        redu_df[col_name].astype(str).str.contains(value, case=True, na=False, regex=True)]
-                elif operator == '=' or operator == 's=':
-                    redu_df = redu_df[redu_df[col_name] == value]
-                elif operator == '!=' or operator == 's!=':
-                    redu_df = redu_df[redu_df[col_name] != value]
-                elif operator == '<' or operator == 's<':
-                    redu_df = redu_df[
-                        pd.to_numeric(redu_df[col_name], errors='coerce') < float(value)]
-                elif operator == '<=' or operator == 's<=':
-                    redu_df = redu_df[
-                        pd.to_numeric(redu_df[col_name], errors='coerce') <= float(value)]
-                elif operator == '>' or operator == 's>':
-                    redu_df = redu_df[
-                        pd.to_numeric(redu_df[col_name], errors='coerce') > float(value)]
-                elif operator == '>='  or operator == 's>=':
-                    redu_df = redu_df[
-                        pd.to_numeric(redu_df[col_name], errors='coerce') >= float(value)]
+        column = redu_df[col_name]
+        is_numeric = pd.api.types.is_numeric_dtype(column)
 
-    return redu_df
+        if operator == 'is':
+            if value == 'blank':
+                as_text = column.astype(str)
+                mask &= (column.isna() | (as_text.str.strip() == '') | (as_text == 'missing value')).to_numpy()
+                continue
+            raise FilterError(f"'is {value}' filters are not supported, use 'is blank' or a comparison")
 
-    
+        if operator == 'contains':
+            try:
+                re.compile(value)
+            except re.error as e:
+                raise FilterError(f"Invalid regular expression for {col_name}: {value} ({e})")
+            mask &= column.astype(str).str.contains(value, case=False, na=False, regex=True).to_numpy()
+        elif operator == 'datestartswith':
+            mask &= column.astype(str).str.startswith(value, na=False).to_numpy()
+        elif operator in ('=', '!='):
+            if is_numeric:
+                try:
+                    matches = (column == float(value)).to_numpy()
+                except ValueError:
+                    raise FilterError(f"{col_name} is numeric, but '{value}' is not a number")
+            else:
+                matches = (column == value).to_numpy()
+            mask &= matches if operator == '=' else ~matches
+        else:
+            try:
+                number = float(value)
+            except ValueError:
+                raise FilterError(f"'{operator}' needs a number, got '{value}' for {col_name}")
+            numeric = pd.to_numeric(column, errors='coerce')
+            if operator == '<':
+                mask &= (numeric < number).to_numpy()
+            elif operator == '<=':
+                mask &= (numeric <= number).to_numpy()
+            elif operator == '>':
+                mask &= (numeric > number).to_numpy()
+            elif operator == '>=':
+                mask &= (numeric >= number).to_numpy()
 
-# Load the data
-df_redu = _load_redu_sampledata()
+    return redu_df[mask]
 
-# Define column configurations
-default_columns = ["SampleType", "SampleTypeSub1", "NCBITaxonomy", "UBERONBodyPartName", "MassSpectrometer", "USI"]
 
-# All columns in desired order
-all_columns_ordered = default_columns + [col for col in df_redu.columns if col not in default_columns]
+# Paging through a large result re-runs the same filter and sort, so the resulting row
+# order is memoised per (data version, filter, sort).
+_result_cache = OrderedDict()
+_result_cache_lock = threading.Lock()
+_RESULT_CACHE_SIZE = 16
 
-# Initialize the Dash app with Bootstrap theme
+
+def _filtered_sorted_positions(filter_query, sort_by):
+    key = (_metadata_mtime(), filter_query or "", json.dumps(sort_by or []))
+    with _result_cache_lock:
+        if key in _result_cache:
+            _result_cache.move_to_end(key)
+            return _result_cache[key]
+
+    df_redu = _load_redu_sampledata()
+    df = _filter_redu_sampledata(df_redu, filter_query)
+    sort_by = [col for col in (sort_by or []) if col['column_id'] in df.columns]
+    if sort_by:
+        df = df.sort_values(
+            [col['column_id'] for col in sort_by],
+            ascending=[col['direction'] == 'asc' for col in sort_by],
+            kind='stable',
+        )
+    positions = df_redu.index.get_indexer(df.index)
+
+    with _result_cache_lock:
+        _result_cache[key] = positions
+        while len(_result_cache) > _RESULT_CACHE_SIZE:
+            _result_cache.popitem(last=False)
+    return positions
+
+
+def _columns_in_query(filter_query):
+    columns = []
+    for part in _split_query(filter_query):
+        col_name, _, _ = split_filter_part(part)
+        if col_name and col_name not in columns:
+            columns.append(col_name)
+    return columns
+
+
+def _quote(value):
+    return '"' + str(value).replace('"', '\\"') + '"'
+
+
+##############################
+# Cached summaries
+##############################
+
+_summary_cache = {}
+
+
+def _cached_by_data_version(name, compute):
+    mtime = _metadata_mtime()
+    cached = _summary_cache.get(name)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    value = compute()
+    _summary_cache[name] = (mtime, value)
+    return value
+
+
+def _real_values(series):
+    return series[series.notna() & (series != 'missing value')]
+
+
+def _compute_overview():
+    """Summary numbers for the header tiles and the "What's in ReDU" panel. Every entry is
+    optional: a statistic whose columns are not in the current metadata is left out."""
+    df = _load_redu_sampledata()
+    has = lambda *cols: all(col in df.columns for col in cols)
+
+    def _subject_stats(mask):
+        subset = df[mask]
+        stats = [("Files", len(subset))]
+        if has('UBERONBodyPartName'):
+            stats.append(("Body parts", _real_values(subset['UBERONBodyPartName']).nunique()))
+        if has('DOIDCommonName'):
+            stats.append(("Diseases", _real_values(subset['DOIDCommonName']).nunique()))
+        return stats
+
+    overview = {"files": len(df), "sections": []}
+
+    if has('ATTRIBUTE_DatasetAccession'):
+        overview["datasets"] = df['ATTRIBUTE_DatasetAccession'].nunique()
+    if has('NCBITaxonomy'):
+        overview["taxa"] = _real_values(df['NCBITaxonomy']).nunique()
+
+    if has('DataSource'):
+        sources = df['DataSource'].value_counts()
+        overview["repositories"] = len(sources)
+        overview["sections"].append(("Files by repository", list(sources.items()), True))
+
+    if has('NCBIDivision', 'NCBITaxonomy'):
+        divisions = (
+            df[df['NCBIDivision'].notna() & (df['NCBIDivision'] != 'missing value')]
+            .groupby('NCBIDivision')['NCBITaxonomy'].nunique()
+            .sort_values(ascending=False)
+        )
+        overview["sections"].append(("Taxa by NCBI division",
+                                     [(division, count) for division, count in divisions.items() if count >= 10], True))
+
+    if has('NCBITaxonomy'):
+        overview["sections"].append(("Human (Homo sapiens)",
+                                     _subject_stats(df['NCBITaxonomy'] == '9606|Homo sapiens'), False))
+        overview["sections"].append(("Mouse (Mus)",
+                                     _subject_stats(df['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus'])), False))
+
+    if has('ENVOEnvironmentMaterial'):
+        env_counts = df['ENVOEnvironmentMaterial'].value_counts().to_dict()
+        env_groups = OrderedDict([
+            ("Surface water", ['river water', 'surface water', 'ocean water']),
+            ("Groundwater", ['groundwater']),
+            ("Waste water", ['waste water', 'industrial wastewater', 'treated wastewater']),
+            ("Sediment / soil", ['sediment', 'soil']),
+        ])
+        grouped = [key for keys in env_groups.values() for key in keys]
+        environment = [(label, sum(env_counts.get(k, 0) for k in keys)) for label, keys in env_groups.items()]
+        environment.append(("Other", sum(count for key, count in env_counts.items()
+                                         if key not in grouped and key != 'missing value')))
+        overview["sections"].append(("Environmental samples", environment, True))
+
+    return overview
+
+
+def _column_suggestions(column):
+    def compute():
+        df = _load_redu_sampledata()
+        if column not in df.columns:
+            return []
+        counts = df[column].astype(str).value_counts().head(300)
+        return [(value, count) for value, count in counts.items()]
+    return _cached_by_data_version("suggestions:" + column, compute)
+
+
+##############################
+# Layout
+##############################
+
+# Columns come from whatever the current metadata file contains, so columns added to or
+# removed from the workflow output show up without code changes. These are only
+# preferences: any that are missing are skipped.
+PREFERRED_DEFAULT_COLUMNS = ["SampleType", "SampleTypeSub1", "NCBITaxonomy", "UBERONBodyPartName", "MassSpectrometer", "USI"]
+
+
+def _all_columns():
+    columns = list(_load_redu_sampledata().columns)
+    preferred = [col for col in PREFERRED_DEFAULT_COLUMNS if col in columns]
+    return preferred + [col for col in columns if col not in preferred]
+
+
+def _default_columns():
+    columns = _all_columns()
+    preferred = [col for col in PREFERRED_DEFAULT_COLUMNS if col in columns]
+    return preferred or columns[:6]
+
+
+def _numeric_columns():
+    df = _load_redu_sampledata()
+    return [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+
+
+def _available_presets():
+    columns = set(_all_columns())
+    return [(i, preset) for i, preset in enumerate(PRESETS)
+            if set(_columns_in_query(preset["query"])) <= columns]
+
+
+# Warm the cache at startup so the first visitor does not pay for loading the table
+_load_redu_sampledata()
+
 dash_app = dash.Dash(
     name="redu_selection",
     server=app,
     url_base_pathname="/selection/",
-    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    assets_folder=os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets"),
+    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP],
+    meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 
-dash_app.config.suppress_callback_exceptions = True  # Allow callbacks for components not in the initial layout
+dash_app.config.suppress_callback_exceptions = True
 dash_app.title = 'ReDU2'
 
 
-# Determine which columns are hidden by default
-hidden_columns = [col for col in all_columns_ordered if col not in default_columns]
+def _external_link(label, href, icon=None):
+    children = [html.I(className=f"bi bi-{icon} me-1")] if icon else []
+    return dbc.NavItem(dbc.NavLink(children + [label], href=href, target="_blank", external_link=True))
 
 
-# Make logo path
-image_url = dash_app.get_asset_url("panReDU_logo.PNG")
-
-
-# Create the navigation menu with the logo
 navbar = dbc.Navbar(
     dbc.Container([
         html.A(
-            html.Img(src=dash_app.get_asset_url("panReDU_logo.png"), height="80px", style={"padding-right": "15px"}),
+            html.Img(src=dash_app.get_asset_url("panReDU_logo.png"), height="48px", alt="Pan-ReDU"),
             href="/",
-            style={"textDecoration": "none"}
+            className="navbar-brand",
         ),
-        dbc.NavbarSimple(
-            children=[
-                dbc.NavItem(
-                    html.A(
-                        "Contribute Your Metadata",
-                        href="https://deposit.redu.gnps2.org/",
-                        target="_blank",
-                        className="nav-link",
-                        style={"fontSize": "20px", "margin-right": "100px"}
-                    )
-                ),                
-                dbc.NavItem(
-                    html.A(
-                        "Column Descriptions and Metadata validation",
-                        href="https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?usp=sharing",
-                        target="_blank",
-                        className="nav-link",
-                        style={"fontSize": "20px", "margin-right": "100px"}
-                    )
-                ),
-                dbc.NavItem(
-                    html.A(
-                        "ReDU Dashboard - Documentation",
-                        href="https://wang-bioinformatics-lab.github.io/GNPS2_Documentation/ReDU_overview/",
-                        target="_blank",
-                        className="nav-link",
-                        style={"fontSize": "20px", "margin-right": "100px"}
-                    )
-                ),
-                dbc.NavItem(
-                    html.A(
-                        "Download Complete ReDU",
-                        href="/dump",
-                        target="_blank",
-                        id="download-complete-link",
-                        className="nav-link",
-                        style={"fontSize": "20px", "margin-right": "20px"}
-                    )
-                )
-            ],
-            color="#e1e8f2",  # Adjusted color to complement the logo
-            dark=False,  # Set to False if you choose a light color for better readability
-            expand=True,  # This allows the navbar to expand and fill the space
+        dbc.NavbarToggler(id="navbar-toggler"),
+        dbc.Collapse(
+            dbc.Nav([
+                _external_link("Documentation", "https://wang-bioinformatics-lab.github.io/GNPS2_Documentation/ReDU_overview/", "book"),
+                _external_link("Column descriptions", "https://docs.google.com/spreadsheets/d/10U0xnJUKa_mD0H_9suH1KJAlJD9io9e4chBX8EAHneE/edit?usp=sharing", "table"),
+                _external_link("Contribute metadata", "https://deposit.redu.gnps2.org/", "cloud-upload"),
+                dbc.NavItem(dbc.NavLink([html.I(className="bi bi-download me-1"), "Download complete ReDU"],
+                                        href="/dump", external_link=True)),
+            ], className="ms-auto", navbar=True),
+            id="navbar-collapse",
+            navbar=True,
         ),
-        dcc.Download(id="download-complete-tsv"),
     ], fluid=True),
-    color="#e1e8f2",  # Adjusted color for the navbar background
-    dark=False,
+    className="redu-navbar",
+    color="light",
+    expand="lg",
 )
 
-# Layout for the PanReDU page (Main Dashboard)
-panredu_layout = dbc.Container(fluid=True, children=[
-    # Main Row for Left Panel and Right Column (Title, Description, Buttons, and Table)
-    dbc.Row([
-        # Left Panel: Summary Statistics with Padding Above
-        dbc.Col([
-            dbc.Card([
-                dbc.CardHeader(html.H2('Summary Statistics')),
-                dbc.CardBody(id="summary-stats")
-            ], className='mb-4'),
 
+def _repository_links():
+    links = [
+        ("MetaboLights", "https://www.ebi.ac.uk/metabolights/"),
+        ("Metabolomics Workbench", "https://www.metabolomicsworkbench.org/"),
+        ("GNPS/MassIVE", "https://gnps.ucsd.edu/ProteoSAFe/datasets.jsp#%7B%22query%22%3A%7B%7D%2C%22table_sort_history%22%3A%22createdMillis_dsc%22%2C%22title_input%22%3A%22GNPS%22"),
+        ("NORMAN/DSFP", "https://dsfp.norman-data.eu/search"),
+    ]
+    children = []
+    for i, (label, href) in enumerate(links):
+        if i:
+            children.append(", " if i < len(links) - 1 else " and ")
+        children.append(html.A(label, href=href, target="_blank"))
+    return children
+
+
+header = dbc.Container([
+    html.H1("Pan-ReDU", className="redu-title"),
+    html.P(
+        ["Harmonized sample metadata for public untargeted metabolomics files from "]
+        + _repository_links()
+        + [". Updated daily. Find files, then download them or send them to GNPS2 for analysis. ",
+           html.A("Contribute your data", href="https://deposit.redu.gnps2.org/", target="_blank"),
+           " to grow the resource."],
+        className="redu-lead",
+    ),
+    html.Div(id="overview-tiles", className="redu-tiles"),
+    html.Div(id="overview-details", className="redu-stats"),
+], fluid=True, className="redu-header")
+
+
+def _filter_panel():
+    return dbc.Card([
+        dbc.CardHeader(html.Span([html.I(className="bi bi-funnel me-2"), "Filters"])),
+        dbc.CardBody([
+            html.Div(id="filter-notice"),
+            html.Div(id="active-filters"),
+            dbc.Button("Clear all filters", id="clear-filters", color="link", size="sm", className="p-0 mt-1"),
+            html.Div(className="mb-3"),
+
+            html.Div("Add a filter", className="redu-section-label"),
+            dcc.Dropdown(
+                id="builder-column",
+                options=[{"label": col, "value": col} for col in sorted(_all_columns(), key=str.lower)],
+                placeholder="Column...",
+                clearable=False,
+                className="mb-2",
+            ),
+            dbc.Row([
+                dbc.Col(dbc.Select(id="builder-operator", options=OPERATOR_OPTIONS, value="="), width=5),
+                dbc.Col(dbc.Input(id="builder-value", placeholder="Value...", list="builder-suggestions",
+                                  debounce=False, autocomplete="off"), width=7),
+            ], className="g-2 mb-2"),
+            html.Datalist(id="builder-suggestions"),
+            dbc.Button([html.I(className="bi bi-plus-lg me-1"), "Add filter"], id="builder-add",
+                       color="primary", size="sm", className="w-100", disabled=True),
+            dbc.FormText("Pick a value from the suggestions, or type a regular expression with \"contains\".",
+                         className="d-block mt-1"),
+
+            html.Hr(),
+            html.Div("Examples", className="redu-section-label"),
             html.Div([
-                html.H5("Example Filters:"),
-                dbc.Button("Human Samples", id="example-filter-human", color="link"),
-                html.Br(),
-                dbc.Button("Plant Samples", id="example-filter-plant", color="link"),
-                html.Br(),
-                dbc.Button("Orbitrap Mass Spectrometer", id="example-filter-orbitrap", color="link"),
-                html.Br(),
-                dbc.Button("Homo sapiens and Mus but no Mus muscuslus", id="example-filter-complex", color="link"),
-                html.Br(),
-                dbc.Button("Blood Samples from Rattus norvegicus", id="example-filter-multi", color="link"),
-                html.Br(),
-                dbc.Button("Samples with RP-LC, hydrophobic extraction and MS2 scans", id="example-filter-lipids", color="link"),
-            ], className='mb-4'),
-        ], width=3, className='mt-4'),  # Add top margin here
+                dbc.Button(preset["label"], id={"type": "preset", "index": i}, color="light", size="sm",
+                           className="redu-preset")
+                for i, preset in _available_presets()
+            ], className="d-flex flex-column gap-1"),
+        ]),
+    ], className="mb-3")
 
-        # Right Column with Title, Paragraph, Data Table, and Buttons
-        dbc.Col([
-            # Title and Paragraph Row
-            dbc.Row([
-                dbc.Col([
-                    html.H1('Pan-ReDU Dashboard', className='text-center my-2'),
-                    html.P([
-                        'This represents a daily updated metadata table sourcing from the public metabolomics repositories: ',
-                        html.Br(),
-                        html.A('MetaboLights', href='https://www.ebi.ac.uk/metabolights/', target='_blank',
-                               style={'fontSize': '18px'}),
-                        ', ',
-                        html.A('Metabolomics Workbench', href='https://www.metabolomicsworkbench.org/', target='_blank',
-                               style={'fontSize': '18px'}),
-                        ', ',
-                        html.A('GNPS',
-                               href='https://gnps.ucsd.edu/ProteoSAFe/datasets.jsp#%7B%22query%22%3A%7B%7D%2C%22table_sort_history%22%3A%22createdMillis_dsc%22%2C%22title_input%22%3A%22GNPS%22',
-                               target='_blank', style={'fontSize': '18px'}),
-                        ', and ',
-                        html.A('NORMAN/DSFP',
-                               href='https://dsfp.norman-data.eu/search',
-                               target='_blank', style={'fontSize': '18px'}),
-                        '.',
-                        html.Br(), html.Br(),
-                        'Please ',
-                        html.A('contribute your data',
-                               href='https://deposit.redu.gnps2.org/',
-                               target='_blank', style={'fontSize': '18px'}),
-                        ' to grow this public resource and bring our field forward!'
-                    ], className='text-center mb-4', style={'fontSize': '18px'}),
-                ], width=10),
 
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardHeader(html.H5("Contributors")),
-                        dbc.CardBody([
-                            html.P("Yasin El Abiead", className='mb-1'),
-                            html.P("Mingxun Wang", className='mb-1'),
-                        ])
-                    ])
-                ], width=2)
-            ], align="center"),
+def _sidebar():
+    return html.Div([_filter_panel()])
 
-            # Buttons Row Above the Data Table
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            html.H4(['Filter Table'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
-                            dbc.Button("Subset Table to mz(X)ML files", id="subset-mzml-button", color="info",
-                                       className="mb-2", style={"width": "100%", "height": "23%", "text-align": "center"}),
-                            html.P(['Or use the column filters below,..'],
-                                   className='text-center mb-4', style={'fontSize': '18px'})
-                        ],
-                        width=3, className="d-flex flex-column align-items-start justify-content-start",
-                        style={"height": "200px"}
-                    ),
-                    dbc.Col(
-                        [
-                            html.H4(['Download Filtered Subset'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
-                            dbc.Button("ReDU Table", id="download-button", color="warning",
-                                       className="mb-2", style={"width": "100%", "height": "23%", "text-align": "center"}),
-                            dbc.Button("USIs for Batch Processing/Download", id="USIdownload-button", color="warning",
-                                       className="mb-2", style={"width": "100%", "height": "23%", "text-align": "center"},
-                                       href="https://github.com/Wang-Bioinformatics-Lab/downloadpublicdata",
-                                       target="_blank")
-                        ],
-                        width=3, className="d-flex flex-column align-items-start justify-content-start",
-                        style={"height": "200px"}
-                    ),
-                    dbc.Col(
-                        [
-                            html.H4(['Process Selected Files'], style={'font-weight': 'bold', 'text-decoration': 'underline', 'text-align': 'center', 'width': '100%', 'margin': '0 auto'}),
-                            dbc.Button("View/Download Raw Data in Browser", id="dashboard-button", color="primary",
-                                       className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
-                                       href="https://dashboard.gnps2.org/",
-                                       target="_blank"),
-                            dbc.Button("Molecular Networking/Library Matching", id="mn-button", color="primary",
-                                       className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
-                                       href="https://gnps2.org/workflowinput?workflowname=classical_networking_workflow",
-                                       target="_blank"),
-                            dbc.Button("MassQL/Fragmentation Rule Search", id="massql-button", color="primary",
-                                       className="mb-2", style={"width": "100%", "height": "100%", "text-align": "center"},
-                                       href="https://gnps2.org/workflowinput?workflowname=massql_workflow",
-                                       target="_blank")
-                        ],
-                        width=3, className="d-flex flex-column align-items-start justify-content-around",
-                        style={"height": "200px"}
-                    ),
-                    dbc.Col(
-                        [
-                            dcc.Loading(
-                                id="network-link-button",
-                                children=[html.Div([html.Div(id="loading-output-232")])],
-                                type="default",
-                            )
-                        ]
-                    )
-                ],
-                className="mb-2 mt-3"
+
+def _results_toolbar():
+    has_usi = "USI" in _all_columns()
+    return html.Div([
+        html.Div([
+            html.Div(id="result-count", className="redu-result-count"),
+            html.Div(id="filter-error"),
+        ], className="flex-grow-1"),
+        html.Div([
+            dbc.Button([html.I(className="bi bi-file-earmark-code me-1"), "mzML/mzXML only"],
+                       id="subset-mzml-button", color="secondary", outline=True, size="sm",
+                       title="Keep only open-format files, which GNPS2 tools can read directly",
+                       style=None if has_usi else {"display": "none"}),
+            dcc.Dropdown(
+                id="visible-columns",
+                options=[{"label": col, "value": col} for col in _all_columns()],
+                value=_default_columns(),
+                multi=True,
+                clearable=False,
+                placeholder="Columns",
+                className="redu-column-picker",
             ),
-            # Data Table Component
-            dash_table.DataTable(
-                id='data-table',
-                columns=[
-                    {'name': col, 'id': col, 'hideable': True, 'clearable': True}
-                    for col in all_columns_ordered
-                ],
-                hidden_columns=hidden_columns,
-                page_current=0,
-                page_size=10,
-                page_action='custom',
-                row_selectable='multiple',
-                filter_action='custom',
-                filter_query='',
-                filter_options={"placeholder_text": "Filter column..."},
-                sort_action='custom',
-                sort_mode='multi',
-                sort_by=[],
-                style_table={'overflowX': 'auto'},
-                style_cell={
-                    'whiteSpace': 'normal',
-                    'height': 'auto',
-                    'textAlign': 'left',
-                    'userSelect': 'text',
-                },
-                cell_selectable=False,
-            ),
-            dbc.Row([
-                html.Div(id='page-count', className='mt-2'),  # Page count div
-                html.Div(id='rows-remaining', className='mt-2'),  # Rows remaining div
-                html.Div(id='dummy-div', style={'display': 'none'})  # Any additional elements if needed
-            ], justify="end", className="text-end"),
-
-            # Additional Components if Needed
-            dcc.Download(id="download-dataframe-csv"),            
-
-            # Modal for settings popup
-            dbc.Modal(
-                [
-                    dbc.ModalHeader("Subset table to files matching MS2 scan"),
-                    dbc.ModalBody([
-                        dbc.Form([
-                            dbc.Row([
-                                dbc.Label("Min cosine", html_for="min-cosine", width=4),
-                                dbc.Col(
-                                    dbc.Input(id="min-cosine", type="number", placeholder="0.7", value=0.7, step=0.1),
-                                    width=8),
-                            ], className="mb-3"),
-                            dbc.Row([
-                                dbc.Label("Min matching peaks", html_for="min-matching-peaks", width=4),
-                                dbc.Col(
-                                    dbc.Input(id="min-matching-peaks", type="number", placeholder="6", value=6, step=1),
-                                    width=8),
-                            ], className="mb-3"),
-                            dbc.Row([
-                                dbc.Label("USI", html_for="usi", width=4),
-                                dbc.Col(dbc.Input(id="usi", type="text", placeholder="mzspec:....",
-                                                  value="mzspec:GNPS:GNPS-LIBRARY:accession:CCMSLIB00005435737",
-                                                  style={'width': '100%'}),
-                                        width=8),
-                            ], className="mb-3"),
-                            dbc.Row([
-                                dbc.Label("Fragment Tolerance [mz]", html_for="fragment-tolerance", width=4),
-                                dbc.Col(
-                                    dbc.Input(id="fragment-tolerance", type="number", placeholder="0.02", value=0.02,
-                                              step=0.01), width=8),
-                            ], className="mb-3"),
-                            dbc.Row([
-                                dbc.Label("Precursor Tolerance [mz]", html_for="precursor-tolerance", width=4),
-                                dbc.Col(
-                                    dbc.Input(id="precursor-tolerance", type="number", placeholder="0.02", value=0.02,
-                                              step=0.01), width=8),
-                            ], className="mb-3"),
-                        ])
-                    ]),
-                    dbc.ModalFooter(
-                        dbc.Button("Submit", id="submit-fasstmasst", color="primary")
-                    )
-                ],
-                id="fasstmasst-modal",
-                is_open=False
-            ),
-        ], width=9)
-    ], align="start")
-])
+            dbc.DropdownMenu([
+                dbc.DropdownMenuItem("Metadata table (CSV)", id="download-button"),
+                dbc.DropdownMenuItem("USI list (CSV)", id="USIdownload-button", disabled=not has_usi),
+                dbc.DropdownMenuItem(divider=True),
+                dbc.DropdownMenuItem("How to batch download raw files",
+                                     href="https://github.com/Wang-Bioinformatics-Lab/downloadpublicdata",
+                                     target="_blank", external_link=True),
+            ], label=html.Span([html.I(className="bi bi-download me-1"), "Download"]),
+               color="secondary", size="sm", align_end=True, toggle_class_name="redu-download-toggle"),
+            dcc.Clipboard(id="share-link", title="Copy a link to this filtered view",
+                          className="btn btn-outline-secondary btn-sm redu-share",
+                          content=""),
+        ], className="redu-toolbar-actions"),
+    ], className="redu-toolbar")
 
 
-# setting tracking token
+def _selection_bar():
+    return html.Div([
+        html.Div([
+            html.Span(id="selection-count", className="me-3"),
+            dbc.Button("Select all matching", id="select-all-button", color="link", size="sm", className="p-0 me-3"),
+            dbc.Button("Clear selection", id="clear-selection-button", color="link", size="sm", className="p-0"),
+        ], className="d-flex align-items-center flex-wrap"),
+        html.Div([
+            dbc.Button([html.I(className="bi bi-eye me-1"), "View raw data"], id="dashboard-button",
+                       color="primary", size="sm", href=GNPS2_DASHBOARD_URL, target="_blank", external_link=True),
+            dbc.Button([html.I(className="bi bi-diagram-3 me-1"), "Molecular networking"], id="mn-button",
+                       color="primary", size="sm", href=GNPS2_NETWORKING_URL, target="_blank", external_link=True),
+            dbc.Button([html.I(className="bi bi-search me-1"), "MassQL search"], id="massql-button",
+                       color="primary", size="sm", href=GNPS2_MASSQL_URL, target="_blank", external_link=True),
+        ], className="d-flex gap-2 flex-wrap"),
+    ], className="redu-selection-bar")
+
+
+def _make_table(filter_query='', visible_columns=None, page_size=25, sort_by=None):
+    """Build the results table.
+
+    Filters set from outside the table (presets, filter builder, chips, URL) re-create it
+    instead of only updating filter_query: the DataTable skips refreshing its per-column
+    filter cells when the new query equals the last one it generated itself (e.g. ""),
+    and the stale cells then come back the next time the user types in any filter cell.
+    """
+    all_columns = _all_columns()
+    numeric_columns = _numeric_columns()
+    visible_columns = [col for col in (visible_columns or []) if col in all_columns] or _default_columns()
+    return dash_table.DataTable(
+        id='data-table',
+        columns=[
+            {'name': col, 'id': col, 'type': 'numeric' if col in numeric_columns else 'text'}
+            for col in all_columns
+        ],
+        hidden_columns=[col for col in all_columns if col not in visible_columns],
+        data=[],
+        page_current=0,
+        page_size=page_size,
+        page_action='custom',
+        row_selectable='multiple' if 'USI' in all_columns else False,
+        selected_rows=[],
+        filter_action='custom',
+        filter_query=filter_query,
+        filter_options={"placeholder_text": "filter..."},
+        sort_action='custom',
+        sort_mode='multi',
+        sort_by=sort_by or [],
+        tooltip_delay=400,
+        tooltip_duration=None,
+        style_table={'overflowX': 'auto'},
+        style_cell={
+            'textAlign': 'left',
+            'whiteSpace': 'nowrap',
+            'overflow': 'hidden',
+            'textOverflow': 'ellipsis',
+            'maxWidth': '320px',
+            'minWidth': '90px',
+            'padding': '6px 10px',
+            'fontFamily': 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            'fontSize': '13px',
+            'userSelect': 'text',
+        },
+        style_header={
+            'backgroundColor': '#f1f4f9',
+            'fontWeight': '600',
+            'borderBottom': '2px solid #d5dce8',
+        },
+        style_filter={'backgroundColor': '#fbfcfe'},
+        style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#fafbfd'}] + [
+            {'if': {'filter_query': '{%s} = "missing value"' % col, 'column_id': col}, 'color': '#a0a7b4'}
+            for col in all_columns if col not in numeric_columns
+        ],
+        cell_selectable=False,
+    )
+
+
+def _results_panel():
+    return dbc.Card([
+        dbc.CardBody([
+            _results_toolbar(),
+            dcc.Loading(html.Div(_make_table(), id="table-container"), type="dot", delay_show=300, color="#3b6fb6"),
+            html.Div([
+                html.Div(id="page-count", className="text-muted small"),
+                html.Div([
+                    html.Span("Rows per page", className="text-muted small me-2"),
+                    dbc.Select(id="page-size", options=[{"label": str(n), "value": str(n)} for n in (10, 25, 50, 100)],
+                               value="25", size="sm", style={"width": "80px"}),
+                ], className="d-flex align-items-center"),
+            ], className="d-flex justify-content-between align-items-center mt-2"),
+            html.Hr(className="my-3"),
+            _selection_bar(),
+        ]),
+    ])
+
+
+footer = html.Footer(
+    dbc.Container([
+        html.Div([
+            "Please cite: El Abiead Y., et al. Enabling pan-repository reanalysis for big data science of public metabolomics data. ",
+            html.I("Nat Commun"), " 16, 4838 (2025). ",
+            html.A("doi:10.1038/s41467-025-60067-y", href="https://doi.org/10.1038/s41467-025-60067-y", target="_blank"),
+        ]),
+        html.Div("Contributors: Yasin El Abiead, Mingxun Wang", className="mt-1"),
+        html.Div(id="version-indicator", className="redu-version"),
+    ], fluid=True),
+    className="redu-footer",
+)
+
+
 dash_app.index_string = """<!DOCTYPE html>
 <html>
     <head>
@@ -378,46 +641,40 @@ dash_app.index_string = """<!DOCTYPE html>
 </html>"""
 
 
-# Main app layout
-dash_app.layout = html.Div([
-    dcc.Location(id='url', refresh=False),
-    navbar,
-    panredu_layout,
-    html.Footer(
+# A function, so every page load picks up the columns of the current metadata file
+def serve_layout():
+    return html.Div([
+        dcc.Location(id='url', refresh=False),
+        # 'callback-nav' tells the 'url' Location about pushed URLs too, so going back to them works
+        dcc.Location(id='url-write', refresh='callback-nav'),
+        dcc.Store(id='selected-usis', data=[]),
+        dcc.Download(id="download-dataframe-csv"),
+        navbar,
+        header,
         dbc.Container(
-            [
-                html.P(
-                    "Please cite the following article: ",
-                    style={'fontSize': '14px'}
-                ),
-                html.P(
-                    "El Abiead Y., et al. Enabling pan-repository reanalysis for big data science of public metabolomics data. Nat Commun 16, 4838 (2025).",
-                    style={'fontSize': '14px'}
-                ),
-                html.A(
-                    "https://doi.org/10.1038/s41467-025-60067-y",
-                    href="https://doi.org/10.1038/s41467-025-60067-y",
-                    target="_blank",
-                    style={'fontSize': '14px', 'textDecoration': 'underline'}
-                ),
-                html.Div(
-                    id="version-indicator",
-                    style={
-                        'fontSize': '12px',
-                        'fontFamily': 'monospace',
-                        'color': '#6c757d',
-                        'marginTop': '14px'
-                    }
-                )
-            ],
+            dbc.Row([
+                dbc.Col(_sidebar(), lg=3, md=4),
+                dbc.Col(_results_panel(), lg=9, md=8),
+            ], className="g-3"),
             fluid=True,
-            style={'textAlign': 'center', 'padding': '20px', 'backgroundColor': '#f8f9fa', 'marginTop': '30px'}
-        )
-    )
-])
+        ),
+        footer,
+    ])
 
 
+dash_app.layout = serve_layout
 
+
+##############################
+# Callbacks
+##############################
+
+dash_app.clientside_callback(
+    "function(n, is_open) { return n ? !is_open : is_open; }",
+    Output("navbar-collapse", "is_open"),
+    Input("navbar-toggler", "n_clicks"),
+    State("navbar-collapse", "is_open"),
+)
 
 
 # Resolved on every page load rather than baked into the static layout, because the
@@ -429,327 +686,387 @@ dash_app.layout = html.Div([
 def update_version_indicator(_pathname):
     versions = get_versions()
 
-    link_style = {'color': '#6c757d', 'textDecoration': 'underline'}
-
     def _commit_link(info):
         if info["short"] == "unknown":
             return html.Span("unknown")
-        return html.A(info["short"], href=info["url"], target="_blank", style=link_style)
+        return html.A(info["short"], href=info["url"], target="_blank")
 
     return [
         html.Span("ReDU "),
         _commit_link(versions["redu"]),
-        html.Span("  \u00b7  metadata workflow "),
+        html.Span("  ·  metadata workflow "),
         _commit_link(versions["workflow"]),
     ]
 
 
-# Helper function for parsing filtering expressions
-def split_filter_part(filter_part):
-
-    print(filter_part, file=sys.stderr, flush=True)
-    operators = [
-        's>=',
-        's<=',
-        's>',
-        's<',
-        's!=',
-        's=',
-        '>=',
-        '<=',
-        '>',
-        '<',
-        '!=',
-        '=',
-        'contains',
-        'scontains',
-        'datestartswith',
-    ]
-    for operator in operators:
-        regex = r'\{(?P<col_name>[^\}]+)\} ' + re.escape(operator) + r' "?(.+?)"?$'
-        filter_part = filter_part.strip()
-        match = re.match(regex, filter_part)
-        if match:
-            col_name = match.group('col_name')
-            value = match.group(2)
-            operator = operator.strip()
-
-            print(col_name, operator, value, file=sys.stderr, flush=True)
-            return col_name, operator, value
-    return None, None, None
-
+def _tile(value, label):
+    return html.Div([html.Div(value, className="redu-tile-value"), html.Div(label, className="redu-tile-label")],
+                    className="redu-tile")
 
 
 @dash_app.callback(
-    Output("summary-stats", "children"),
-    Input("data-table", "page_current")
+    Output("overview-tiles", "children"),
+    Output("overview-details", "children"),
+    Input("url", "pathname")
 )
-def update_summary_stats(n_clicks):
-    
-    df_redu = _load_redu_sampledata()
+def update_overview(_pathname):
+    overview = _cached_by_data_version("overview", _compute_overview)
+    last_modified = _metadata_last_modified().strftime("%Y-%m-%d %H:%M %Z")
+
+    tiles = [_tile(f"{overview['files']:,}", "files")]
+    for key, label in (("datasets", "datasets"), ("taxa", "taxa"), ("repositories", "repositories")):
+        if key in overview:
+            tiles.append(_tile(f"{overview[key]:,}", label))
+    tiles.append(_tile(last_modified, "last updated"))
+
+    def _stat_row(label, value, share):
+        cells = [html.Span(str(label), className="redu-stat-label", title=str(label)),
+                 html.Span(f"{value:,}", className="redu-stat-value")]
+        if share is not None:
+            # Thin bar showing the value relative to the largest one in the card
+            cells.append(html.Div(html.Div(style={"width": f"{share:.0%}"}), className="redu-stat-bar"))
+        return html.Div(cells, className="redu-stat-row")
+
+    def _stat_card(title, rows, bars):
+        largest = max((value for _, value in rows), default=0) or 1
+        return html.Div([
+            html.Div(title, className="redu-stat-title"),
+            html.Div([_stat_row(label, value, value / largest if bars else None) for label, value in rows],
+                     className="redu-stat-rows"),
+        ], className="redu-stat-card")
+
+    details = [_stat_card(title, rows, bars) for title, rows, bars in overview["sections"] if rows]
+    return tiles, details
 
 
-    last_modified = _metadata_last_modified()
+@dash_app.callback(
+    Output("builder-suggestions", "children"),
+    Output("builder-operator", "value"),
+    Output("builder-value", "value"),
+    Input("builder-column", "value"),
+    prevent_initial_call=True,
+)
+def update_builder_suggestions(column):
+    if not column:
+        raise PreventUpdate
+    options = [html.Option(value=value, label=f"{count:,} files") for value, count in _column_suggestions(column)]
+    operator = ">" if column in _numeric_columns() else "="
+    return options, operator, ""
 
 
-    last_modified = last_modified.strftime("%Y-%m-%d %H:%M %Z")
+@dash_app.callback(
+    Output("builder-add", "disabled"),
+    Input("builder-column", "value"),
+    Input("builder-value", "value"),
+)
+def toggle_builder_add(column, value):
+    return not (column and value and value.strip())
 
 
-    total_files = len(df_redu)
-    unique_datasets = df_redu['ATTRIBUTE_DatasetAccession'].nunique()
+def _show_columns(visible, columns):
+    all_columns = _all_columns()
+    # Drop columns that no longer exist (e.g. a tab opened before the metadata changed)
+    visible = [col for col in (visible or []) if col in all_columns]
+    for col in columns:
+        if col in all_columns and col not in visible:
+            visible.append(col)
+    return visible
 
 
-    data_source_counts = df_redu['DataSource'].value_counts().to_dict()
+# Every control that rewrites the filter goes through this one callback, so the
+# DataTable's filter_query stays the single source of truth for what is applied.
+def _drop_unknown_columns(filter_query):
+    """Remove filter parts on columns the current metadata does not have (e.g. from a
+    bookmark made before a column was removed). The DataTable throws on those."""
+    all_columns = set(_all_columns())
+    kept, dropped = [], []
+    for part in _split_query(filter_query):
+        col_name, _, _ = split_filter_part(part)
+        if col_name is not None and col_name not in all_columns:
+            dropped.append(col_name)
+        else:
+            kept.append(part)
+    return _join_query(kept), dropped
 
 
-    unique_taxonomies = df_redu['NCBITaxonomy'].nunique() - 1  
+@dash_app.callback(
+    Output("table-container", "children"),
+    Output("visible-columns", "value"),
+    Output("filter-notice", "children"),
+    Input("url", "search"),
+    Input("subset-mzml-button", "n_clicks"),
+    Input({"type": "preset", "index": ALL}, "n_clicks"),
+    Input({"type": "remove-filter", "index": ALL}, "n_clicks"),
+    Input("clear-filters", "n_clicks"),
+    Input("builder-add", "n_clicks"),
+    Input("builder-value", "n_submit"),
+    State("builder-column", "value"),
+    State("builder-operator", "value"),
+    State("builder-value", "value"),
+    State("data-table", "filter_query"),
+    State("data-table", "page_size"),
+    State("data-table", "sort_by"),
+    State("visible-columns", "value"),
+)
+def update_filters(search, _mzml, _presets, _removes, _clear, _add, _submit,
+                   builder_column, builder_operator, builder_value,
+                   filter_query, page_size, sort_by, visible_columns):
+    ctx = callback_context
+    triggered = ctx.triggered_id
+    parts = _split_query(filter_query)
 
-    unique_divisions = [
-        (division, taxonomies) for division, taxonomies in df_redu[df_redu['NCBIDivision'].notna()]
-        .groupby('NCBIDivision')['NCBITaxonomy']
-        .nunique().items() if taxonomies >= 10
-    ]
-    # Human and Mouse Data Specifics
-    human_samples = len(df_redu[df_redu['NCBITaxonomy'] == '9606|Homo sapiens'])
-    human_bodyparts = df_redu.loc[df_redu['NCBITaxonomy'] == '9606|Homo sapiens', 'UBERONBodyPartName'].nunique() - 1
-    human_diseases = df_redu.loc[df_redu['NCBITaxonomy'] == '9606|Homo sapiens', 'DOIDCommonName'].nunique() - 1
+    if triggered is None or triggered == "url":
+        params = urllib.parse.parse_qs((search or "").lstrip("?"))
+        new_query = params.get("filter", [""])[0]
+        if _split_query(new_query) == _split_query(filter_query):
+            raise PreventUpdate
+    elif not ctx.triggered[0]["value"]:
+        # Pattern-matching inputs fire when their components are (re)created
+        raise PreventUpdate
+    elif triggered == "subset-mzml-button":
+        if MZML_CONDITION not in parts:
+            parts.append(MZML_CONDITION)
+        new_query = _join_query(parts)
+    elif triggered == "clear-filters":
+        new_query = ""
+    elif triggered in ("builder-add", "builder-value"):
+        if not (builder_column and builder_value and builder_value.strip()):
+            raise PreventUpdate
+        part = "{%s} %s %s" % (builder_column, builder_operator or "=", _quote(builder_value))
+        if part not in parts:
+            parts.append(part)
+        new_query = _join_query(parts)
+    elif triggered["type"] == "preset":
+        new_query = PRESETS[triggered["index"]]["query"]
+    elif triggered["type"] == "remove-filter":
+        index = triggered["index"]
+        parts = [part for i, part in enumerate(parts) if i != index]
+        new_query = _join_query(parts)
+    else:
+        raise PreventUpdate
 
-    mouse_samples = len(df_redu[df_redu['NCBITaxonomy'].isin(['10088|Mus', '10090|Mus musculus'])])
-    mouse_bodyparts = df_redu.loc[df_redu['NCBITaxonomy'].isin(
-        ['10088|Mus', '10090|Mus musculus']), 'UBERONBodyPartName'].nunique() - 1
-    mouse_diseases = df_redu.loc[df_redu['NCBITaxonomy'].isin(
-        ['10088|Mus', '10090|Mus musculus']), 'DOIDCommonName'].nunique() - 1
+    new_query, dropped = _drop_unknown_columns(new_query)
+    notice = None
+    if dropped:
+        notice = dbc.Alert(
+            [html.I(className="bi bi-info-circle me-2"),
+             "Ignored filters on columns that are no longer in ReDU: " + ", ".join(dropped)],
+            color="info", dismissable=True, className="py-1 px-2 small mb-2",
+        )
 
-
-    # Environmental data (from column ENVOEnvironmentMaterial)
-    env_counts = df_redu['ENVOEnvironmentMaterial'].value_counts().to_dict()
-
-
-    # sum up counts for "river water", "surface water", and "ocean water", as "surface water"
-    surface_water_count = sum(env_counts.get(key, 0) for key in ['river water', 'surface water', 'ocean water'])
-    groundwater_count = sum(env_counts.get(key, 0) for key in ['groundwater'])
-    waste_water_count = sum(env_counts.get(key, 0) for key in ['waste water', 'industrial wastewater', 'treated wastewater'])
-    sediment_soil_count = sum(env_counts.get(key, 0) for key in ['sediment', 'soil'])
-
-    # all other values should be summed up as "other"
-    other_env_count = sum(
-        count for key, count in env_counts.items() if key not in ['river water', 'surface water', 'ocean water',
-                                                                  'groundwater', 'waste water', 'industrial wastewater',
-                                                                  'treated wastewater', 'sediment', 'soil', 'missing value']
-    )
-    
-
-    # Compose card children based on these values
-    stats_card_content = [
-        html.H5(f"Total Files: {total_files:,}"),
-        html.H5(f"Unique Datasets: {unique_datasets}"),
-        html.H5('Files by DataSource:'),
-        html.Ul([html.Li(f"{key}: {value}") for key, value in data_source_counts.items()]),
-        html.H5('Represented Taxonomies:'),
-        html.P(f"Total Unique Taxonomies: {unique_taxonomies}:"),
-        html.Ul([html.Li(f"{division}: {count}") for division, count in unique_divisions]),
-        html.H5('Human/Mouse data:'),
-        html.P(f"Homo Sapiens: {human_samples}"),
-        html.Ul([
-            html.Li(f"Unique Bodyparts: {human_bodyparts}"),
-            html.Li(f"Unique Diseases: {human_diseases}")
-        ]),
-        html.P(f"Mus Musculus: {mouse_samples}"),
-        html.Ul([
-            html.Li(f"Unique Bodyparts: {mouse_bodyparts}"),
-            html.Li(f"Unique Diseases: {mouse_diseases}")
-        ]),
-        html.H5('Environmental data:'),
-        
-        html.Ul([
-            html.Li(f"Surface water: {surface_water_count}"),
-            html.Li(f"Groundwater: {groundwater_count}"),
-            html.Li(f"Waste water: {waste_water_count}"),
-            html.Li(f"Sediment/Soil: {sediment_soil_count}"),
-            html.Li(f"Other: {other_env_count}")
-
-        ]),
-        html.Hr(),
-        html.Div("Last Modified - {}".format(last_modified))
-    ]
-
-    return stats_card_content
-
-
+    visible_columns = _show_columns(visible_columns, _columns_in_query(new_query))
+    return _make_table(new_query, visible_columns, page_size, sort_by), visible_columns, notice
 
 
 @dash_app.callback(
     Output("data-table", "hidden_columns"),
-    Output("data-table", "filter_query"),
-    Input("subset-mzml-button", "n_clicks"),
-    State("data-table", "filter_query"),
-    State("data-table", "columns"),
-    State("data-table", "hidden_columns"),
-    Input('example-filter-human', 'n_clicks'),
-    Input('example-filter-plant', 'n_clicks'),
-    Input('example-filter-orbitrap', 'n_clicks'),
-    Input('example-filter-complex', 'n_clicks'),
-    Input('example-filter-multi', 'n_clicks'),
-    Input('example-filter-lipids', 'n_clicks'),
-    prevent_initial_call=True
+    Input("visible-columns", "value"),
 )
-def populate_filters(n_clicks_mzml, 
-                     old_condition,
-                     current_columns,
-                     hidden_columns,
-                     human_clicks,
-                     plant_clicks,
-                     orbitrap_clicks,
-                     complex_clicks,
-                     lipids_clicks,
-                     multi_clicks):
+def update_hidden_columns(visible_columns):
+    # With nothing picked the table would be empty, so fall back to the default columns
+    visible_columns = visible_columns or _default_columns()
+    return [col for col in _all_columns() if col not in visible_columns]
 
 
-    ctx = callback_context
-    if not ctx.triggered:
-        raise PreventUpdate
-
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+_OPERATOR_LABELS = {"=": "is", "!=": "is not", "contains": "contains", "is": "is"}
 
 
-    if triggered_id == 'subset-mzml-button':
-        new_condition = '{USI} contains ".(mzML|mzXML)$"'
-        out_condition = f"{old_condition} && {new_condition}" if old_condition else new_condition
+@dash_app.callback(
+    Output("active-filters", "children"),
+    Output("clear-filters", "style"),
+    Output("url-write", "search"),
+    Input("data-table", "filter_query"),
+)
+def update_active_filters(filter_query):
+    parts = _split_query(filter_query)
+    search = "?" + urllib.parse.urlencode({"filter": filter_query}) if parts else ""
+    if callback_context.triggered_id is None:
+        # Initial page load: the table has not read the filter from the URL yet, so writing
+        # its empty filter back would wipe out a shared link
+        search = dash.no_update
 
-        if 'USI' in hidden_columns:
-            hidden_columns.remove('USI')
+    if not parts:
+        return html.Div("No filters applied, showing all files.", className="text-muted small"), {"display": "none"}, search
 
+    chips = []
+    for i, part in enumerate(parts):
+        col_name, operator, value = split_filter_part(part)
+        if operator is None:
+            label = part
+        else:
+            label = [html.Strong(col_name), f" {_OPERATOR_LABELS.get(operator, operator)} ", html.Span(value, className="redu-chip-value")]
+        chips.append(html.Div([
+            html.Span(label, className="redu-chip-label", title=part),
+            html.Button(html.I(className="bi bi-x"), id={"type": "remove-filter", "index": i},
+                        className="redu-chip-remove", title="Remove this filter"),
+        ], className="redu-chip"))
 
-    elif triggered_id == 'example-filter-human':
-        out_condition = '{NCBITaxonomy} contains "Homo sapiens"'
-
-        if 'NCBITaxonomy' in hidden_columns:
-            hidden_columns.remove('NCBITaxonomy')        
-
-    elif triggered_id == 'example-filter-plant':
-        out_condition = '{SampleType} contains "plant"'
-
-        if 'SampleType' in hidden_columns:
-            hidden_columns.remove('SampleType')    
-
-    elif triggered_id == 'example-filter-orbitrap':
-        out_condition = '{MassSpectrometer} contains "(Orbitrap|Exactive|Exploris|Astral)"'
-
-        if 'MassSpectrometer' in hidden_columns:
-            hidden_columns.remove('MassSpectrometer')    
-
-    elif triggered_id == 'example-filter-complex':
-        out_condition = '{NCBITaxonomy} contains "(Homo|Mus)(?!.*musculus)"'
-        
-        if 'NCBITaxonomy' in hidden_columns:
-            hidden_columns.remove('NCBITaxonomy')    
-
-    elif triggered_id == 'example-filter-multi':
-        out_condition = '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'
-
-        if 'UBERONBodyPartName' in hidden_columns:
-            hidden_columns.remove('UBERONBodyPartName')
-
-        if 'NCBITaxonomy' in hidden_columns:
-            hidden_columns.remove('NCBITaxonomy')
-
-    elif triggered_id == 'example-filter-lipids':
-        out_condition = '{ChromatographyAndPhase} contains "reverse phase" && {SampleExtractionMethod} contains "(butanol|dichloromethane|isopropanol|methyltertbutylether)" && {MS2spectra_count} > 0'
-
-        if 'ChromatographyAndPhase' in hidden_columns:
-            hidden_columns.remove('ChromatographyAndPhase')
-
-        if 'SampleExtractionMethod' in hidden_columns:
-            hidden_columns.remove('SampleExtractionMethod')
-
-        if 'MS2spectra_count' in hidden_columns:
-            hidden_columns.remove('MS2spectra_count')
-        
-    else:
-        out_condition = old_condition
+    return html.Div(chips, className="d-flex flex-column gap-1"), {}, search
 
 
+dash_app.clientside_callback(
+    "function(n) { return n ? window.location.href : ''; }",
+    Output("share-link", "content"),
+    Input("share-link", "n_clicks"),
+    prevent_initial_call=True,
+)
 
-    return hidden_columns, out_condition
 
+@dash_app.callback(
+    Output("data-table", "page_size"),
+    Input("page-size", "value"),
+)
+def update_page_size(page_size):
+    return int(page_size or 25)
+
+
+def _usis_on_page(data):
+    return [row.get("USI") for row in data or []]
+
+
+def _count_phrase(n_files, positions, df_redu):
+    count = [html.Strong(f"{n_files:,}"), " files"]
+    if n_files and 'ATTRIBUTE_DatasetAccession' in df_redu.columns:
+        n_datasets = df_redu['ATTRIBUTE_DatasetAccession'].iloc[positions].nunique()
+        count += [" from ", html.Strong(f"{n_datasets:,}"), " datasets"]
+    return count
 
 
 @dash_app.callback(
     Output("data-table", "data"),
-    Output("rows-remaining", "children"),
+    Output("data-table", "selected_rows"),
+    Output("data-table", "page_current"),
+    Output("data-table", "page_count"),
+    Output("data-table", "tooltip_data"),
+    Output("result-count", "children"),
     Output("page-count", "children"),
-    Output("mn-button", "href"),
-    Output("massql-button", "href"),
-    Output("dashboard-button", "href"),
-    Output("loading-output-232", "children"),
+    Output("filter-error", "children"),
     Input("data-table", "page_current"),
     Input("data-table", "page_size"),
     Input("data-table", "sort_by"),
     Input("data-table", "filter_query"),
-    Input('data-table', 'selected_rows'),
-    Input("network-link-button", "n_clicks"),
-    State("data-table", "columns")
+    State("selected-usis", "data"),
 )
-def update_table_display(page_current, page_size, sort_by, filter_query, selected_rows, visible_columns, n_clicks):
-
-    print('first filter state', file=sys.stderr, flush=True)
-    print(filter_query, file=sys.stderr, flush=True)
-
+def update_table_display(page_current, page_size, sort_by, filter_query, selected_usis):
     df_redu = _load_redu_sampledata()
 
-    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
+    try:
+        positions = _filtered_sorted_positions(filter_query, sort_by)
+        error = None
+    except FilterError as e:
+        positions = np.arange(0)
+        error = dbc.Alert([html.I(className="bi bi-exclamation-triangle me-2"), str(e)],
+                          color="warning", className="py-1 px-2 mt-2 mb-0 small")
 
-    # Sorting
-    if sort_by:
-        df_redu_filtered = df_redu_filtered.sort_values(
-            [col['column_id'] for col in sort_by],
-            ascending=[col['direction'] == 'asc' for col in sort_by],
-            inplace=False
-        )
+    # A new filter or page size starts over at the first page; otherwise the user can be
+    # left on a page past the end of a smaller result.
+    triggered = {t["prop_id"] for t in callback_context.triggered}
+    if {"data-table.filter_query", "data-table.page_size", "data-table.sort_by"} & triggered:
+        page_current = 0
 
-    # Pagination
-    total_filtered_rows = len(df_redu_filtered)
-    total_pages = max(1, math.ceil(total_filtered_rows / page_size))
-    page_info = f"Page {page_current + 1} of {total_pages}"
-    rows_remaining_text = f"{total_filtered_rows} files remaining"
+    page_size = page_size or 25
+    total_rows = len(positions)
+    total_pages = max(1, math.ceil(total_rows / page_size))
+    page_current = min(page_current or 0, total_pages - 1)
 
-    # Slice data based on current page
-    start_idx = page_current * page_size
-    end_idx = start_idx + page_size
-    paginated_data = df_redu_filtered.iloc[start_idx:end_idx]
+    page_positions = positions[page_current * page_size:(page_current + 1) * page_size]
+    page_df = df_redu.iloc[page_positions]
+    page_data = page_df.to_dict('records')
 
-    # Convert paginated data to dictionary format for DataTable
-    paginated_data_dict = paginated_data.to_dict('records')
+    selected = set(selected_usis or [])
+    selected_rows = [i for i, row in enumerate(page_data) if row.get("USI") is not None and row.get("USI") in selected]
 
+    tooltip_data = [
+        {col: {'value': str(value), 'type': 'text'} for col, value in row.items() if len(str(value)) > 40}
+        for row in page_data
+    ]
 
-    networking_gnps2_url = "https://gnps2.org/workflowinput?workflowname=classical_networking_workflow"
-    massql_gnps2_url = "https://gnps2.org/workflowinput?workflowname=massql_workflow"
-    dashboard_gnps2_url = "https://dashboard.gnps2.org/"
-    if selected_rows:
-        params = "\n".join(paginated_data_dict[i]['USI'] for i in selected_rows)
+    if error is None:
+        count = _count_phrase(total_rows, positions, df_redu)
+        if _split_query(filter_query):
+            count.append(html.Span(" match your filters", className="text-muted"))
+    else:
+        count = [html.Strong("0"), " files"]
 
-        hash_params = {
-            "usi": params,
-        }
+    page_info = f"Page {page_current + 1:,} of {total_pages:,}"
 
-        massql_gnps2_url = massql_gnps2_url + "#" + json.dumps(hash_params)
-        networking_gnps2_url = networking_gnps2_url + "#" + json.dumps(hash_params)
-
-        dashboard_params = {
-            "usi": params,
-            "usi2": ""
-        }
-
-        dashboard_gnps2_url = dashboard_gnps2_url + "#" + json.dumps(dashboard_params)
+    return page_data, selected_rows, page_current, total_pages, tooltip_data, count, page_info, error
 
 
-    return  paginated_data_dict, \
-            rows_remaining_text, \
-            page_info, \
-            networking_gnps2_url, \
-            massql_gnps2_url, \
-            dashboard_gnps2_url, \
-            ""
+@dash_app.callback(
+    Output("selected-usis", "data"),
+    Input("data-table", "selected_rows"),
+    State("data-table", "data"),
+    State("selected-usis", "data"),
+    prevent_initial_call=True,
+)
+def track_selection(selected_rows, data, selected_usis):
+    page_usis = _usis_on_page(data)
+    on_page = set(page_usis)
+    kept = [usi for usi in (selected_usis or []) if usi not in on_page]
+    newly = [page_usis[i] for i in (selected_rows or []) if i < len(page_usis) and page_usis[i] is not None]
+    return (kept + newly)[:MAX_SELECTION]
+
+
+@dash_app.callback(
+    Output("selected-usis", "data", allow_duplicate=True),
+    Output("data-table", "selected_rows", allow_duplicate=True),
+    Input("clear-selection-button", "n_clicks"),
+    Input("select-all-button", "n_clicks"),
+    State("data-table", "filter_query"),
+    State("data-table", "sort_by"),
+    State("data-table", "data"),
+    prevent_initial_call=True,
+)
+def bulk_selection(_clear, _select_all, filter_query, sort_by, data):
+    if callback_context.triggered_id == "clear-selection-button":
+        return [], []
+
+    try:
+        positions = _filtered_sorted_positions(filter_query, sort_by)
+    except FilterError:
+        raise PreventUpdate
+    df_redu = _load_redu_sampledata()
+    if 'USI' not in df_redu.columns:
+        raise PreventUpdate
+    usis = df_redu['USI'].iloc[positions[:MAX_SELECTION]].tolist()
+    selected = set(usis)
+    return usis, [i for i, usi in enumerate(_usis_on_page(data)) if usi in selected]
+
+
+@dash_app.callback(
+    Output("selection-count", "children"),
+    Output("dashboard-button", "href"),
+    Output("mn-button", "href"),
+    Output("massql-button", "href"),
+    Output("dashboard-button", "disabled"),
+    Output("mn-button", "disabled"),
+    Output("massql-button", "disabled"),
+    Output("select-all-button", "children"),
+    Input("selected-usis", "data"),
+)
+def update_selection_actions(selected_usis):
+    selected_usis = selected_usis or []
+    n = len(selected_usis)
+    select_all_label = f"Select all matching (max {MAX_SELECTION})"
+
+    if not n:
+        message = html.Span("Tick rows in the table to send files to GNPS2.", className="text-muted")
+        return message, GNPS2_DASHBOARD_URL, GNPS2_NETWORKING_URL, GNPS2_MASSQL_URL, True, True, True, select_all_label
+
+    usis = "\n".join(selected_usis)
+    hash_params = json.dumps({"usi": usis})
+    dashboard_hash = json.dumps({"usi": usis, "usi2": ""})
+
+    message = [html.Strong(f"{n:,}"), f" file{'s' if n != 1 else ''} selected"]
+    if n >= MAX_SELECTION:
+        message.append(html.Span(f" (limit {MAX_SELECTION})", className="text-muted"))
+
+    return (message,
+            GNPS2_DASHBOARD_URL + "#" + dashboard_hash,
+            GNPS2_NETWORKING_URL + "#" + hash_params,
+            GNPS2_MASSQL_URL + "#" + hash_params,
+            False, False, False, select_all_label)
 
 
 @dash_app.callback(
@@ -757,24 +1074,24 @@ def update_table_display(page_current, page_size, sort_by, filter_query, selecte
     Input("download-button", "n_clicks"),
     Input("USIdownload-button", "n_clicks"),
     State("data-table", "filter_query"),
-    State("data-table", "columns"),
+    State("data-table", "sort_by"),
     prevent_initial_call=True
 )
-def download_filtered_data(n_clicks, n_clicks2, filter_query, visible_columns):
+def download_filtered_data(n_clicks, n_clicks2, filter_query, sort_by):
     if not n_clicks and not n_clicks2:
         raise PreventUpdate
 
-    df_redu = _load_redu_sampledata()
-    df_redu_filtered = _filter_redu_sampledata(df_redu, filter_query)
+    try:
+        positions = _filtered_sorted_positions(filter_query, sort_by)
+    except FilterError:
+        raise PreventUpdate
+    df_redu_filtered = _load_redu_sampledata().iloc[positions]
 
-    ctx = callback_context
-
-    if ctx.triggered[0]['prop_id'].split('.')[0] == 'USIdownload-button':
-
-        df_redu_filtered = df_redu_filtered.rename(columns={'USI': 'usi'})
-
-        df_redu_filtered = df_redu_filtered[['usi']]
-        return dcc.send_data_frame(df_redu_filtered.to_csv, "usis.csv", index=False)
+    if callback_context.triggered_id == 'USIdownload-button':
+        if 'USI' not in df_redu_filtered.columns:
+            raise PreventUpdate
+        df_usis = df_redu_filtered[['USI']].rename(columns={'USI': 'usi'})
+        return dcc.send_data_frame(df_usis.to_csv, "usis.csv", index=False)
 
     return dcc.send_data_frame(df_redu_filtered.to_csv, "filtered_dataset.csv", index=False)
 
