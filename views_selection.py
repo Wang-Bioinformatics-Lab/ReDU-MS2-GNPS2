@@ -1,20 +1,48 @@
 from app import app
 import json
+import numpy as np
 import pandas as pd
 from flask import request
 
-import config
 from ontology_utils import resolve_ontology
+from utils import _load_redu_sampledata, _metadata_mtime
 
 black_list_attribute = ["SubjectIdentifierAsRecorded", "UniqueSubjectID", "UBERONOntologyIndex", "DOIDOntologyIndex", "ComorbidityListDOIDIndex", "HPOOntologyIndex", "ExposureIndex"]
+
+
+# These routes use the table the app keeps in memory (re-reading the ~1.4 GB TSV took ~10 s and
+# ~3 GB more memory per request) and answer as from the TSV read as text: that copy holds
+# MS2spectra_count as numbers, and its feather copy has None where the TSV read has NaN.
+def _as_text(column):
+    return column if column.dtype == object else column.astype(str)
+
+
+def _rows_as_text(df):
+    numeric = [col for col in df.columns if df[col].dtype != object]
+    if numeric:
+        df = df.astype({col: str for col in numeric})
+    if df.isna().to_numpy().any():
+        df = df.where(df.notna(), np.nan)
+    return df
 
 ##############################
 # Metadata Selector API Calls
 ##############################
+_attributes_cache = (None, None)  # (table version, response)
+
+
 @app.route('/attributes', methods=['GET'])
 def viewattributes():
-    # Reading the dump instead of the database
-    metadata_df = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep="\t", dtype=str)
+    # (counting the distinct values of every column takes ~4 s: once per table version)
+    global _attributes_cache
+    mtime = _metadata_mtime()
+    if _attributes_cache[0] != mtime:
+        _attributes_cache = (mtime, _attributes_response())
+    return _attributes_cache[1]
+
+
+def _attributes_response():
+    metadata_df = _load_redu_sampledata()
 
     all_attributes_list = list(metadata_df.columns)
 
@@ -24,7 +52,7 @@ def viewattributes():
         output_dict["attributename"] = attribute
         output_dict["attributedisplay"] = attribute.replace("ATTRIBUTE_", "").replace("Analysis_", "").replace("Subject_", "").replace("Curated_", "")
 
-        all_terms = set(metadata_df[attribute])
+        all_terms = set(_as_text(metadata_df[attribute]))
         output_dict["countterms"] = len(all_terms)
 
         if attribute == "filename":
@@ -43,29 +71,28 @@ def viewattributes():
 #Returns all the terms given an attribute along with file counts for each term
 @app.route('/attribute/<attribute>/attributeterms', methods=['GET'])
 def viewattributeterms(attribute):
-    metadata_df = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep="\t", dtype=str)
+    metadata_df = _load_redu_sampledata()
     filters_list = json.loads(request.values.get('filters', "[]"))
 
     # Applying filters
+    keep = np.ones(len(metadata_df), dtype=bool)
     for filterobject in filters_list:
         filter_attribute = filterobject["attributename"]
         filter_term = filterobject["attributeterm"]
 
         #TODO: check for types
-        metadata_df = metadata_df[metadata_df[filter_attribute] == filter_term]
+        keep &= (_as_text(metadata_df[filter_attribute]) == filter_term).to_numpy()
 
-    terms_list = list(set(metadata_df[attribute]))
+    terms = _as_text(metadata_df[attribute])[keep]
 
     output_list = []
-    grouped_term_df = metadata_df.groupby(attribute)
-    for term, term_df in grouped_term_df:
-        #term_df = metadata_df[metadata_df[attribute] == term]
-        if len(term_df) > 0:
+    for term, count in terms.groupby(terms).size().items():
+        if count > 0:
             output_dict = {}
             output_dict["attributename"] = attribute
             output_dict["attributeterm"] = term
             output_dict["ontologyterm"] = resolve_ontology(attribute, term)
-            output_dict["countfiles"] = len(term_df)
+            output_dict["countfiles"] = int(count)
             output_list.append(output_dict)
 
     return json.dumps(output_list)
@@ -73,9 +100,9 @@ def viewattributeterms(attribute):
 #Returns all the terms given an attribute along with file counts for each term
 @app.route('/attribute/<attribute>/attributeterm/<term>/files', methods=['GET'])
 def viewfilesattributeattributeterm(attribute, term):
-    metadata_df = pd.read_csv(config.PATH_TO_ORIGINAL_MAPPING_FILE, sep="\t", dtype=str)
+    metadata_df = _load_redu_sampledata()
     
-    metadata_df = metadata_df[metadata_df[attribute] == term]
+    metadata_df = _rows_as_text(metadata_df[(_as_text(metadata_df[attribute]) == term).to_numpy()])
 
     return json.dumps(metadata_df.to_dict(orient="records"))    
 

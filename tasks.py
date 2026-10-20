@@ -21,13 +21,16 @@ def tasks_generate_metadata():
         --old_redu ./nf_output/merged_metadata.tsv \
         -c ./nextflow.config > nextflowstdout.log 2>&1"
 
-    result = subprocess.run(cmd, shell=True)
+    try:
+        result = subprocess.run(cmd, shell=True)
+    finally:
+        # Remove the work directories of earlier runs so they do not accumulate (~11 GB per run),
+        # also when this run failed (its own work directory stays until the next run)
+        subprocess.run("cd /app/workflows/PublicDataset_ReDU_Metadata_Workflow && nextflow clean -f -but last", shell=True)
+
     if result.returncode != 0:
         # Raise so the failure shows up in celery instead of passing silently
         raise RuntimeError(f"Metadata workflow failed with exit code {result.returncode}, see nextflowstdout.log")
-
-    # Remove the work directories of earlier runs so they do not accumulate
-    subprocess.run("cd /app/workflows/PublicDataset_ReDU_Metadata_Workflow && nextflow clean -f -but last", shell=True)
 
     return "Up"
 

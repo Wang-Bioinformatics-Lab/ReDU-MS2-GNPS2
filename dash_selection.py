@@ -252,6 +252,8 @@ def _filtered_sorted_positions(filter_query, sort_by):
             [col['column_id'] for col in sort_by],
             ascending=[col['direction'] == 'asc' for col in sort_by],
             kind='stable',
+            key=_sort_key,
+            na_position='last',
         )
     positions = df_redu.index.get_indexer(df.index)
 
@@ -260,6 +262,27 @@ def _filtered_sorted_positions(filter_query, sort_by):
         while len(_result_cache) > _RESULT_CACHE_SIZE:
             _result_cache.popitem(last=False)
     return positions
+
+
+def _is_numeric_valued(column):
+    """Whether a text column holds only numbers apart from 'missing value' (AgeInYears, BodyMassIndex, ...), over
+    the whole table."""
+    def compute():
+        df = _load_redu_sampledata()
+        if column not in df.columns or df[column].dtype != object:
+            return False
+        values = pd.Series(df[column].dropna().unique())
+        values = values[values != 'missing value']
+        return bool(len(values)) and bool(pd.to_numeric(values, errors='coerce').notna().all())
+    return _cached_by_data_version("numeric-valued:" + str(column), compute)
+
+
+def _sort_key(values):
+    """Columns of numbers kept as text sort by their numbers ("9.0" before "10.0"), with 'missing value' last in
+    both directions (as NaN); the cells themselves stay as they are."""
+    if values.dtype == object and _is_numeric_valued(values.name):
+        return pd.to_numeric(values, errors='coerce')
+    return values
 
 
 def _columns_in_query(filter_query):
@@ -351,10 +374,10 @@ def _compute_overview():
     if has('ENVOEnvironmentMaterial'):
         env_counts = df['ENVOEnvironmentMaterial'].value_counts().to_dict()
         env_groups = OrderedDict([
-            ("Surface water", ['river water', 'surface water', 'ocean water']),
+            ("Surface water", ['river water', 'surface water', 'ocean water', 'sea water', 'coastal sea water']),
             ("Groundwater", ['groundwater']),
             ("Waste water", ['waste water', 'industrial wastewater', 'treated wastewater']),
-            ("Sediment / soil", ['sediment', 'soil']),
+            ("Sediment / soil", ['sediment', 'soil', 'lake sediment', 'marine sediment']),
         ])
         grouped = [key for keys in env_groups.values() for key in keys]
         environment = [(label, sum(env_counts.get(k, 0) for k in keys)) for label, keys in env_groups.items()]
