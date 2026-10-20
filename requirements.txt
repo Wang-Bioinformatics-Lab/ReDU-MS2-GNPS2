@@ -1,7 +1,7 @@
 Flask
 gunicorn
 plotly
-pandas
+pandas==2.3.3
 requests
 tqdm
 Werkzeug==2.2.2
@@ -15,4 +15,4 @@ dash-core-components
 dash-html-components
 dash-renderer
 dash-table
-pyarrow
+pyarrow==25.0.1

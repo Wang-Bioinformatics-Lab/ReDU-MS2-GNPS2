@@ -277,12 +277,22 @@ def _is_numeric_valued(column):
     return _cached_by_data_version("numeric-valued:" + str(column), compute)
 
 
+# Numbers that stand for "not known" (MS2spectra_count -1: the file is not in the dataset cache; AgeInYears -1 / -1.0):
+# they sort with 'missing value'. Negative numbers of other columns (depths, times before an event) are real values.
+SORT_PLACEHOLDERS = {'MS2spectra_count': -1, 'AgeInYears': -1}
+
+
 def _sort_key(values):
-    """Columns of numbers kept as text sort by their numbers ("9.0" before "10.0"), with 'missing value' last in
-    both directions (as NaN); the cells themselves stay as they are."""
+    """Columns of numbers kept as text sort by their numbers ("9.0" before "10.0"), with 'missing value' and the
+    placeholder numbers last in both directions (as NaN); the cells themselves stay as they are."""
+    key = values
     if values.dtype == object and _is_numeric_valued(values.name):
-        return pd.to_numeric(values, errors='coerce')
-    return values
+        key = pd.to_numeric(values, errors='coerce')
+    if values.name in SORT_PLACEHOLDERS:
+        numbers = key if pd.api.types.is_numeric_dtype(key) else pd.to_numeric(values, errors='coerce')
+        # ('missing value' too: already NaN above, but not if the column ever holds other text and sorts as text)
+        key = key.where((numbers != SORT_PLACEHOLDERS[values.name]) & (values != 'missing value'))
+    return key
 
 
 def _columns_in_query(filter_query):
@@ -368,16 +378,22 @@ def _compute_overview():
         # (files with the organism, also among others: a pooled QC of human and other milk)
         overview["sections"].append(("Human (Homo sapiens)",
                                      _subject_stats(_cell_or_part_in(df['NCBITaxonomy'], ['9606|Homo sapiens'])), False))
-        overview["sections"].append(("Mouse (Mus)",
-                                     _subject_stats(_cell_or_part_in(df['NCBITaxonomy'], ['10088|Mus', '10090|Mus musculus'])), False))
+        # (the genus, Mus musculus and its subspecies in the table)
+        mouse = ['10088|Mus', '10095|Mus sp.', '10090|Mus musculus', '10092|Mus musculus domesticus']
+        overview["sections"].append(("Mouse (Mus)", _subject_stats(_cell_or_part_in(df['NCBITaxonomy'], mouse)), False))
 
     if has('ENVOEnvironmentMaterial'):
         env_counts = df['ENVOEnvironmentMaterial'].value_counts().to_dict()
+        # (the ENVO water, sediment and soil terms of the table, by name; any other material counts as "Other")
         env_groups = OrderedDict([
-            ("Surface water", ['river water', 'surface water', 'ocean water', 'sea water', 'coastal sea water']),
-            ("Groundwater", ['groundwater']),
+            ("Surface water", ['river water', 'surface water', 'ocean water', 'sea water', 'coastal sea water',
+                               'pond water', 'fresh water', 'lake water', 'ditch water']),
+            ("Groundwater", ['groundwater', 'interstitial water']),
             ("Waste water", ['waste water', 'industrial wastewater', 'treated wastewater']),
-            ("Sediment / soil", ['sediment', 'soil', 'lake sediment', 'marine sediment']),
+            ("Sediment / soil", ['sediment', 'soil', 'lake sediment', 'marine sediment',
+                                 'stream sediment', 'deep marine sediment', 'sediment permeated by saline water',
+                                 'peat soil', 'alpine soil', 'agricultural soil', 'volcanic soil', 'burned soil',
+                                 'forest soil', 'dry soil', 'grassland soil']),
         ])
         grouped = [key for keys in env_groups.values() for key in keys]
         environment = [(label, sum(env_counts.get(k, 0) for k in keys)) for label, keys in env_groups.items()]
