@@ -210,6 +210,17 @@ a {
     border-radius: 2px;
 }
 
+/* When a repository was last updated (Files by repository) */
+.redu-stat-note {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    color: #8792a6;
+}
+
+.redu-stat-note-stale {
+    color: #a15c00;
+}
+
 /* Results toolbar */
 
 .redu-toolbar {

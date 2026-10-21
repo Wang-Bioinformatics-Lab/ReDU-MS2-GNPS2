@@ -7,7 +7,8 @@ from flask import request
 from ontology_utils import resolve_ontology
 from utils import _load_redu_sampledata, _metadata_mtime
 
-black_list_attribute = ["SubjectIdentifierAsRecorded", "UniqueSubjectID", "UBERONOntologyIndex", "DOIDOntologyIndex", "ComorbidityListDOIDIndex", "HPOOntologyIndex", "ExposureIndex"]
+black_list_attribute = ["SubjectIdentifierAsRecorded", "UniqueSubjectID", "UBERONOntologyIndex", "DOIDOntologyIndex", "ComorbidityListDOIDIndex", "HPOOntologyIndex", "ExposureIndex",
+                        "IsolationSourceUBERONOntologyIndex"]
 
 
 # These routes use the table the app keeps in memory (re-reading the ~1.4 GB TSV took ~10 s and

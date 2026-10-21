@@ -61,10 +61,10 @@ def status():
     stdout_modified = os.path.getmtime("./workflows/PublicDataset_ReDU_Metadata_Workflow/nextflowstdout.log")
     stdout_modified = str(pd.to_datetime(stdout_modified, unit='s').tz_localize('UTC').tz_convert('US/Pacific'))
 
-    # Per-source row counts of the last run: a source with 0 rows "this_run" failed and
-    # is being served from earlier runs
+    # Per-source row counts of the last run and each repository's last update: a repository whose
+    # last_run_status is "not updated" is being served from earlier runs (empty fields stay "", not NaN)
     try:
-        source_summary = pd.read_csv("./workflows/PublicDataset_ReDU_Metadata_Workflow/nf_output/source_summary.tsv", sep="\t")
+        source_summary = pd.read_csv(config.PATH_TO_SOURCE_SUMMARY_FILE, sep="\t", keep_default_na=False)
         source_summary = source_summary.to_dict(orient="records")
     except Exception:
         source_summary = []

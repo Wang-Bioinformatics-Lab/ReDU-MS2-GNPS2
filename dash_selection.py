@@ -14,6 +14,7 @@ from collections import OrderedDict
 
 from app import app
 
+import config
 from utils import _load_redu_sampledata, _metadata_last_modified, _metadata_mtime
 from version_utils import get_versions
 
@@ -43,6 +44,8 @@ PRESETS = [
      "query": '{UBERONBodyPartName} contains "blood" && {NCBITaxonomy} contains "Rattus norvegicus"'},
     {"label": "Lipidomics: RP-LC, hydrophobic extraction, has MS2",
      "query": '{ChromatographyAndPhase} contains "reverse phase" && {SampleExtractionMethod} contains "(butanol|dichloromethane|isopropanol|methyltertbutylether)" && {MS2spectra_count} > 0'},
+    {"label": "Isolated from plants",
+     "query": '{IsolationSourceNCBIKingdom} = "Viridiplantae"'},
 ]
 
 OPERATOR_OPTIONS = [
@@ -66,14 +69,15 @@ class FilterError(Exception):
 
 # A file of several organisms (a co-culture, a host with its parasite, a mixture, a pool of several species) has one
 # NCBITaxonomy term per organism, joined by '||' ('6613|Euprymna scolopes||312309|Aliivibrio fischeri ES114'), and
-# the NCBI rank / division / lineage columns and OpenTreeOfLifeTaxonomyID one value per organism in the same order.
+# the NCBI rank / division / lineage columns and OpenTreeOfLifeTaxonomyID one value per organism in the same order;
+# so do IsolationSourceNCBITaxonomy (the organisms an isolate was isolated from) and its NCBI kingdom / phylum.
 # In these columns "is" / "is not" compare a value with the cell and with each of its organisms, the suggestions and
 # the overview count organisms, and a "contains" value with '||' is read as it is written.
 MULTI_SEP = '||'
 
 
 def _is_multi_value_column(col_name):
-    return str(col_name).startswith('NCBI') or col_name == 'OpenTreeOfLifeTaxonomyID'
+    return str(col_name).startswith(('NCBI', 'IsolationSourceNCBI')) or col_name == 'OpenTreeOfLifeTaxonomyID'
 
 
 def _cell_parts(cell):
@@ -315,8 +319,15 @@ def _quote(value):
 _summary_cache = {}
 
 
-def _cached_by_data_version(name, compute):
+def _cached_by_data_version(name, compute, also_path=None):
+    # also_path: a file the value is read from besides the table; its version is part of the key too
     mtime = _metadata_mtime()
+    if also_path:
+        try:
+            stat = os.stat(also_path)
+            mtime = (mtime, stat.st_mtime, stat.st_size)
+        except OSError:
+            mtime = (mtime, None)
     cached = _summary_cache.get(name)
     if cached and cached[0] == mtime:
         return cached[1]
@@ -404,6 +415,40 @@ def _compute_overview():
     return overview
 
 
+def _repository_updates():
+    """{repository: (last update, whether the last run updated it)} from the workflow's source_summary.tsv next to
+    the table; {} when it is missing, cannot be read or has no last update (from an earlier workflow version). Also
+    keyed by the summary's version: the workflow publishes it just after the table."""
+    def compute():
+        try:
+            summary = pd.read_csv(config.PATH_TO_SOURCE_SUMMARY_FILE, sep='\t', dtype=str, keep_default_na=False)
+        except Exception:
+            return {}
+        if not {'DataSource', 'last_update', 'last_run_status'} <= set(summary.columns):
+            return {}
+        # last_run_status: 'updated' or 'not updated', with the reason in parentheses
+        return {row.DataSource: (row.last_update, row.last_run_status.split(' (')[0] == 'updated')
+                for row in summary.itertuples() if row.last_run_status}
+    return _cached_by_data_version("repository-updates", compute, also_path=config.PATH_TO_SOURCE_SUMMARY_FILE)
+
+
+def _update_note(update):
+    """The line under a repository in "Files by repository": the day its rows were last updated (the start of that
+    workflow run, in the time zone of the "last updated" tile), or that the last run did not update it and the day
+    its rows are from"""
+    if update is None:
+        return None
+    last_update, updated = update
+    when = pd.to_datetime(last_update, utc=True, errors='coerce') if last_update else pd.NaT
+    when = None if pd.isna(when) else when.tz_convert('US/Pacific')
+    title = when.strftime("%Y-%m-%d %H:%M %Z") if when is not None else None
+    if updated:
+        text = "updated " + when.strftime("%Y-%m-%d") if when is not None else "updated"
+        return html.Div(text, className="redu-stat-note", title=title)
+    text = "not updated in the last run" + ("; data from " + when.strftime("%Y-%m-%d") if when is not None else "")
+    return html.Div(text, className="redu-stat-note redu-stat-note-stale", title=title)
+
+
 def _column_suggestions(column):
     def compute():
         df = _load_redu_sampledata()
@@ -445,10 +490,20 @@ def _numeric_columns():
     return [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
 
 
+def _has_values(column):
+    """Whether a column has a value other than 'missing value' (a new column may have none yet)"""
+    def compute():
+        values = _load_redu_sampledata()[column]
+        return bool((values.notna() & (values != 'missing value')).any())
+    return _cached_by_data_version("has-values:" + str(column), compute)
+
+
 def _available_presets():
+    # (an example on a column without values would show no files)
     columns = set(_all_columns())
     return [(i, preset) for i, preset in enumerate(PRESETS)
-            if set(_columns_in_query(preset["query"])) <= columns]
+            if set(_columns_in_query(preset["query"])) <= columns
+            and all(_has_values(column) for column in _columns_in_query(preset["query"]))]
 
 
 # Warm the cache at startup so the first visitor does not pay for loading the table
@@ -554,8 +609,8 @@ def _filter_panel():
             dbc.Button([html.I(className="bi bi-plus-lg me-1"), "Add filter"], id="builder-add",
                        color="primary", size="sm", className="w-100", disabled=True),
             dbc.FormText("Pick a value from the suggestions, or type a regular expression with \"contains\". "
-                         "Files of several organisms list them separated by || (NCBITaxonomy and the NCBI columns); "
-                         "\"is\" matches each of them.",
+                         "Files of several organisms list them separated by || (NCBITaxonomy, IsolationSourceNCBITaxonomy "
+                         "and their NCBI columns); \"is\" matches each of them.",
                          className="d-block mt-1"),
 
             html.Hr(),
@@ -812,6 +867,7 @@ def _tile(value, label):
 def update_overview(_pathname):
     overview = _cached_by_data_version("overview", _compute_overview)
     last_modified = _metadata_last_modified().strftime("%Y-%m-%d %H:%M %Z")
+    updates = _repository_updates()
 
     tiles = [_tile(f"{overview['files']:,}", "files")]
     for key, label in (("datasets", "datasets"), ("taxa", "taxa"), ("repositories", "repositories")):
@@ -819,19 +875,24 @@ def update_overview(_pathname):
             tiles.append(_tile(f"{overview[key]:,}", label))
     tiles.append(_tile(last_modified, "last updated"))
 
-    def _stat_row(label, value, share):
+    def _stat_row(label, value, share, note=None):
         cells = [html.Span(str(label), className="redu-stat-label", title=str(label)),
                  html.Span(f"{value:,}", className="redu-stat-value")]
         if share is not None:
             # Thin bar showing the value relative to the largest one in the card
             cells.append(html.Div(html.Div(style={"width": f"{share:.0%}"}), className="redu-stat-bar"))
+        if note is not None:
+            cells.append(note)
         return html.Div(cells, className="redu-stat-row")
 
     def _stat_card(title, rows, bars):
         largest = max((value for _, value in rows), default=0) or 1
+        # (the repositories: when each was last updated)
+        notes = updates if title == "Files by repository" else {}
         return html.Div([
             html.Div(title, className="redu-stat-title"),
-            html.Div([_stat_row(label, value, value / largest if bars else None) for label, value in rows],
+            html.Div([_stat_row(label, value, value / largest if bars else None, _update_note(notes.get(label)))
+                      for label, value in rows],
                      className="redu-stat-rows"),
         ], className="redu-stat-card")
 
