@@ -312,3 +312,9 @@ button[title="Toggle case sensitivity"],
     width: 34px !important;
     text-overflow: clip !important;
 }
+
+/* Value plot in the sidebar */
+
+.redu-value-plot {
+    margin-left: -4px;
+}

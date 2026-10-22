@@ -2,6 +2,7 @@ import os
 import dash
 from dash import dcc, html, dash_table, Input, Output, State, ALL, callback_context
 import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
 from dash.exceptions import PreventUpdate
 import pandas as pd
 import numpy as np
@@ -173,6 +174,11 @@ def _join_query(parts):
 def _filter_redu_sampledata(redu_df, filter_query=None):
     """Apply a DataTable filter_query. Raises FilterError with a readable message for
     filters that cannot be applied (unknown column, bad regex, non-numeric comparison)."""
+    return redu_df[_filter_mask(redu_df, filter_query)]
+
+
+def _filter_mask(redu_df, filter_query=None):
+    """The rows (bool array) a filter_query keeps; see _filter_redu_sampledata"""
     mask = np.ones(len(redu_df), dtype=bool)
 
     for filter_part in _split_query(filter_query):
@@ -231,7 +237,7 @@ def _filter_redu_sampledata(redu_df, filter_query=None):
             elif operator == '>=':
                 mask &= (numeric >= number).to_numpy()
 
-    return redu_df[mask]
+    return mask
 
 
 # Paging through a large result re-runs the same filter and sort, so the resulting row
@@ -239,6 +245,9 @@ def _filter_redu_sampledata(redu_df, filter_query=None):
 _result_cache = OrderedDict()
 _result_cache_lock = threading.Lock()
 _RESULT_CACHE_SIZE = 16
+# A new filter reaches the table and the value plot at the same time: the second request waits for the first one's
+# result instead of filtering the table again
+_result_pending = {}
 
 
 def _filtered_sorted_positions(filter_query, sort_by):
@@ -247,19 +256,37 @@ def _filtered_sorted_positions(filter_query, sort_by):
         if key in _result_cache:
             _result_cache.move_to_end(key)
             return _result_cache[key]
+        pending = _result_pending.setdefault(key, threading.Lock())
 
+    with pending:
+        with _result_cache_lock:
+            if key in _result_cache:
+                _result_cache.move_to_end(key)
+                return _result_cache[key]
+        try:
+            return _compute_positions(key, filter_query, sort_by)
+        finally:
+            with _result_cache_lock:
+                _result_pending.pop(key, None)
+
+
+def _compute_positions(key, filter_query, sort_by):
     df_redu = _load_redu_sampledata()
-    df = _filter_redu_sampledata(df_redu, filter_query)
-    sort_by = [col for col in (sort_by or []) if col['column_id'] in df.columns]
+    # Only row positions and the sort columns are taken from the table: a copy of all columns of the matching rows
+    # is ~800 MB for the whole table, for each new filter of each user
+    positions = np.flatnonzero(_filter_mask(df_redu, filter_query))
+    sort_by = [col for col in (sort_by or []) if col['column_id'] in df_redu.columns]
     if sort_by:
-        df = df.sort_values(
+        columns = list(dict.fromkeys(col['column_id'] for col in sort_by))
+        to_sort = df_redu[columns].iloc[positions]
+        to_sort.index = positions
+        positions = to_sort.sort_values(
             [col['column_id'] for col in sort_by],
             ascending=[col['direction'] == 'asc' for col in sort_by],
             kind='stable',
             key=_sort_key,
             na_position='last',
-        )
-    positions = df_redu.index.get_indexer(df.index)
+        ).index.to_numpy()
 
     with _result_cache_lock:
         _result_cache[key] = positions
@@ -624,8 +651,25 @@ def _filter_panel():
     ], className="mb-3")
 
 
+def _plot_panel():
+    columns = _all_columns()
+    return dbc.Card([
+        dbc.CardHeader(html.Span([html.I(className="bi bi-bar-chart me-2"), "Values in the current files"])),
+        dbc.CardBody([
+            dcc.Dropdown(
+                id="plot-column",
+                options=[{"label": col, "value": col} for col in sorted(columns, key=str.lower)],
+                value=PLOT_DEFAULT_COLUMN if PLOT_DEFAULT_COLUMN in columns else None,
+                placeholder="Column...",
+                className="mb-2",
+            ),
+            dcc.Loading(html.Div(id="plot-container"), type="dot", delay_show=300, color="#3b6fb6"),
+        ]),
+    ], className="mb-3")
+
+
 def _sidebar():
-    return html.Div([_filter_panel()])
+    return html.Div([_filter_panel(), _plot_panel()])
 
 
 def _results_toolbar():
@@ -1079,6 +1123,84 @@ dash_app.clientside_callback(
 )
 def update_page_size(page_size):
     return int(page_size or 25)
+
+
+PLOT_DEFAULT_COLUMN = "SampleType"
+PLOT_TOP_VALUES = 6
+PLOT_COLORS = ["#3b6fb6", "#e07b39", "#4e9f6e", "#c2547a", "#8a6bbf", "#c9a227"]
+PLOT_OTHER_COLOR = "#9aa4b5"
+PLOT_MISSING_COLOR = "#d5dce8"
+
+
+def _value_groups(values, column):
+    """[(label, files, color)] of a column over the current files: its PLOT_TOP_VALUES most common values, the
+    rest as "other values" and the files without a value. A file of several organisms counts for each of them."""
+    missing = values.isna() | (values.astype(str) == 'missing value')
+    if column in SORT_PLACEHOLDERS:
+        missing |= pd.to_numeric(values, errors='coerce') == SORT_PLACEHOLDERS[column]
+    real = values[~missing]
+    if _is_multi_value_column(column):
+        real = _explode_parts(real.astype(str))
+    counts = real.value_counts()
+    groups = [(str(value), int(n), PLOT_COLORS[i]) for i, (value, n) in enumerate(counts.head(PLOT_TOP_VALUES).items())]
+    if len(counts) > PLOT_TOP_VALUES:
+        rest = counts.iloc[PLOT_TOP_VALUES:]
+        groups.append((f"other values ({len(rest):,})", int(rest.sum()), PLOT_OTHER_COLOR))
+    if missing.any():
+        groups.append(("missing value", int(missing.sum()), PLOT_MISSING_COLOR))
+    return groups
+
+
+def _short(label, width=28):
+    return label if len(label) <= width else label[:width - 1] + "\u2026"
+
+
+def _value_plot(groups, n_files):
+    groups = groups[::-1]   # (plotly draws the first bar at the bottom)
+    figure = go.Figure(go.Bar(
+        x=[n for _, n, _ in groups],
+        y=[_short(label) for label, _, _ in groups],
+        orientation="h",
+        marker_color=[color for _, _, color in groups],
+        text=[f"{n:,}" for _, n, _ in groups],
+        textposition="auto",
+        customdata=[[label, 100 * n / n_files] for label, n, _ in groups],
+        hovertemplate="%{customdata[0]}<br>%{x:,} files (%{customdata[1]:.1f}%)<extra></extra>",
+    ))
+    figure.update_layout(
+        height=60 + 30 * len(groups), margin=dict(l=0, r=8, t=4, b=24),
+        plot_bgcolor="white", paper_bgcolor="white", font=dict(size=11),
+        xaxis=dict(gridcolor="#eef1f6", tickformat="~s"), yaxis=dict(automargin=True), bargap=0.25,
+    )
+    return dcc.Graph(figure=figure, config={"displayModeBar": False}, className="redu-value-plot")
+
+
+@dash_app.callback(
+    Output("plot-container", "children"),
+    Input("plot-column", "value"),
+    Input("data-table", "filter_query"),
+)
+def update_value_plot(column, filter_query):
+    if not column:
+        return html.Div("Pick a column to see how its values are spread over the files that match your filters.",
+                        className="text-muted small")
+    df_redu = _load_redu_sampledata()
+    if column not in df_redu.columns:
+        return None
+    try:
+        # (no sort: the table's own request for an unsorted view shares this result)
+        positions = _filtered_sorted_positions(filter_query, None)
+    except FilterError:
+        return None
+    if not len(positions):
+        return html.Div("No files match your filters.", className="text-muted small")
+    groups = _value_groups(df_redu[column].iloc[positions], column)
+    if len(groups) > PLOT_TOP_VALUES and groups[PLOT_TOP_VALUES - 1][1] == 1:
+        return html.Div(f"Nearly every file has its own {column}.", className="text-muted small")
+    note = []
+    if _is_multi_value_column(column):
+        note = [html.Div("A file of several organisms counts for each of them.", className="text-muted small")]
+    return [_value_plot(groups, len(positions))] + note
 
 
 def _usis_on_page(data):
