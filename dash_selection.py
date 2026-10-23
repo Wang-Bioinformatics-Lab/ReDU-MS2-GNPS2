@@ -595,17 +595,27 @@ def _repository_links():
     return children
 
 
+CONTRIBUTORS = ["Yasin El Abiead", "Mingxun Wang"]
+
 header = dbc.Container([
-    html.H1("Pan-ReDU", className="redu-title"),
-    html.P(
-        ["Harmonized sample metadata for public untargeted metabolomics files from "]
-        + _repository_links()
-        + [". Updated daily. Find files, then download them or send them to GNPS2 for analysis. ",
-           html.A("Contribute your data", href="https://deposit.redu.gnps2.org/", target="_blank"),
-           " to grow the resource."],
-        className="redu-lead",
-    ),
-    html.Div(id="overview-tiles", className="redu-tiles"),
+    html.Div([
+        html.Div([
+            html.H1("Pan-ReDU", className="redu-title"),
+            html.P(
+                ["Harmonized sample metadata for public untargeted metabolomics files from "]
+                + _repository_links()
+                + [". Updated daily. Find files, then download them or send them to GNPS2 for analysis. ",
+                   html.A("Contribute your data", href="https://deposit.redu.gnps2.org/", target="_blank"),
+                   " to grow the resource."],
+                className="redu-lead",
+            ),
+            html.Div(id="overview-tiles", className="redu-tiles"),
+        ], className="redu-header-main"),
+        html.Div([
+            html.Div("Contributors", className="redu-section-label"),
+            html.Div([html.Div(name) for name in CONTRIBUTORS], className="redu-contributor-names"),
+        ], className="redu-contributors"),
+    ], className="redu-header-top"),
     html.Div(id="overview-details", className="redu-stats"),
 ], fluid=True, className="redu-header")
 
@@ -812,7 +822,6 @@ footer = html.Footer(
             html.I("Nat Commun"), " 16, 4838 (2025). ",
             html.A("doi:10.1038/s41467-025-60067-y", href="https://doi.org/10.1038/s41467-025-60067-y", target="_blank"),
         ]),
-        html.Div("Contributors: Yasin El Abiead, Mingxun Wang", className="mt-1"),
         html.Div(id="version-indicator", className="redu-version"),
     ], fluid=True),
     className="redu-footer",

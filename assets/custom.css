@@ -40,6 +40,34 @@ a {
     margin-bottom: 4px;
 }
 
+.redu-header-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px 32px;
+}
+
+.redu-header-main {
+    flex: 1 1 640px;
+    min-width: 0;
+}
+
+.redu-contributors {
+    flex: 0 0 auto;
+    background: #ffffff;
+    border: 1px solid #e3e8f0;
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin-top: 6px;
+}
+
+.redu-contributor-names {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #2b3445;
+}
+
 .redu-lead {
     font-size: 15px;
     color: #4b5a72;
