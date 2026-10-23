@@ -396,21 +396,33 @@ def _compute_overview():
         overview["sections"].append(("Files by repository", list(sources.items()), True))
 
     if has('NCBIDivision', 'NCBITaxonomy'):
-        pairs = df.loc[df['NCBIDivision'].notna() & (df['NCBIDivision'] != 'missing value'), ['NCBIDivision', 'NCBITaxonomy']]
+        # NCBI has one division for plants and fungi: they are told apart by kingdom (Viridiplantae, Fungi); the
+        # division's taxa without either kingdom (diatoms, red algae, oomycetes ...) stay together
+        columns = ['NCBIDivision', 'NCBITaxonomy'] + (['NCBIKingdom'] if has('NCBIKingdom') else [])
+        pairs = df.loc[df['NCBIDivision'].notna() & (df['NCBIDivision'] != 'missing value'), columns]
         several = pairs['NCBITaxonomy'].astype(str).str.contains(MULTI_SEP, regex=False, na=False)
         if several.any():
-            # files of several organisms: each organism with its division (the two cells hold them in the same order)
-            split = [(d.strip(), t.strip())
-                     for division, taxon in zip(pairs.loc[several, 'NCBIDivision'].astype(str), pairs.loc[several, 'NCBITaxonomy'].astype(str))
-                     if division.count(MULTI_SEP) == taxon.count(MULTI_SEP)
-                     for d, t in zip(division.split(MULTI_SEP), taxon.split(MULTI_SEP)) if d.strip() != 'missing value']
-            pairs = pd.concat([pairs[~several], pd.DataFrame(split, columns=['NCBIDivision', 'NCBITaxonomy'])])
-        divisions = (
-            pairs.groupby('NCBIDivision')['NCBITaxonomy'].nunique()
-            .sort_values(ascending=False)
-        )
-        overview["sections"].append(("Taxa by NCBI division",
-                                     [(division, count) for division, count in divisions.items() if count >= 10], True))
+            # files of several organisms: each organism with its division and kingdom (the cells hold them in the
+            # same order)
+            # (a kingdom cell without one value per organism counts as no kingdom)
+            def organisms(division, taxon, kingdom=None):
+                if division.count(MULTI_SEP) != taxon.count(MULTI_SEP):
+                    return []
+                n = division.count(MULTI_SEP) + 1
+                kingdoms = kingdom.split(MULTI_SEP) if kingdom is not None and kingdom.count(MULTI_SEP) + 1 == n else [None] * n
+                return [(d.strip(), t.strip()) + ((k.strip() if k is not None else None,) if kingdom is not None else ())
+                        for d, t, k in zip(division.split(MULTI_SEP), taxon.split(MULTI_SEP), kingdoms)
+                        if d.strip() != 'missing value']
+            split = [part for cells in zip(*(pairs.loc[several, col].astype(str) for col in columns))
+                     for part in organisms(*cells)]
+            pairs = pd.concat([pairs[~several], pd.DataFrame(split, columns=columns)])
+        groups = pairs['NCBIDivision']
+        if 'NCBIKingdom' in pairs:
+            in_division = groups == 'Plants and Fungi'
+            by_kingdom = pairs['NCBIKingdom'].map({'Viridiplantae': 'Plants', 'Fungi': 'Fungi'})
+            groups = groups.where(~in_division, by_kingdom.fillna('Plants and Fungi, other'))
+        divisions = pairs.groupby(groups)['NCBITaxonomy'].nunique().sort_values(ascending=False)
+        overview["sections"].append(("Covered taxa", list(divisions.items()), True))
 
     if has('NCBITaxonomy'):
         # (files with the organism, also among others: a pooled QC of human and other milk)
@@ -421,23 +433,9 @@ def _compute_overview():
         overview["sections"].append(("Mouse (Mus)", _subject_stats(_cell_or_part_in(df['NCBITaxonomy'], mouse)), False))
 
     if has('ENVOEnvironmentMaterial'):
-        env_counts = df['ENVOEnvironmentMaterial'].value_counts().to_dict()
-        # (the ENVO water, sediment and soil terms of the table, by name; any other material counts as "Other")
-        env_groups = OrderedDict([
-            ("Surface water", ['river water', 'surface water', 'ocean water', 'sea water', 'coastal sea water',
-                               'pond water', 'fresh water', 'lake water', 'ditch water']),
-            ("Groundwater", ['groundwater', 'interstitial water']),
-            ("Waste water", ['waste water', 'industrial wastewater', 'treated wastewater']),
-            ("Sediment / soil", ['sediment', 'soil', 'lake sediment', 'marine sediment',
-                                 'stream sediment', 'deep marine sediment', 'sediment permeated by saline water',
-                                 'peat soil', 'alpine soil', 'agricultural soil', 'volcanic soil', 'burned soil',
-                                 'forest soil', 'dry soil', 'grassland soil']),
-        ])
-        grouped = [key for keys in env_groups.values() for key in keys]
-        environment = [(label, sum(env_counts.get(k, 0) for k in keys)) for label, keys in env_groups.items()]
-        environment.append(("Other", sum(count for key, count in env_counts.items()
-                                         if key not in grouped and key != 'missing value')))
-        overview["sections"].append(("Environmental samples", environment, True))
+        # every material with its files (the card scrolls)
+        environment = _real_values(df['ENVOEnvironmentMaterial']).value_counts()
+        overview["sections"].append(("Environmental samples", list(environment.items()), True))
 
     return overview
 
