@@ -76,6 +76,10 @@ class FilterError(Exception):
 # the overview count organisms, and a "contains" value with '||' is read as it is written.
 MULTI_SEP = '||'
 
+# NCBI divisions (and the leftover of the plant and fungi split) not listed in the "Covered taxa" card
+COVERED_TAXA_HIDDEN = ['Environmental samples', 'Synthetic and Chimeric', 'Unassigned', 'Viruses',
+                       'Plants and Fungi, other']
+
 
 def _is_multi_value_column(col_name):
     return str(col_name).startswith(('NCBI', 'IsolationSourceNCBI')) or col_name == 'OpenTreeOfLifeTaxonomyID'
@@ -422,6 +426,8 @@ def _compute_overview():
             by_kingdom = pairs['NCBIKingdom'].map({'Viridiplantae': 'Plants', 'Fungi': 'Fungi'})
             groups = groups.where(~in_division, by_kingdom.fillna('Plants and Fungi, other'))
         divisions = pairs.groupby(groups)['NCBITaxonomy'].nunique().sort_values(ascending=False)
+        # small or catch-all groups are left out of the card to keep it readable
+        divisions = divisions.drop(COVERED_TAXA_HIDDEN, errors='ignore')
         overview["sections"].append(("Covered taxa", list(divisions.items()), True))
 
     if has('NCBITaxonomy'):
