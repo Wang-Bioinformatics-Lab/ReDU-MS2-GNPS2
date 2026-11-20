@@ -72,6 +72,7 @@ class FilterError(Exception):
 # NCBITaxonomy term per organism, joined by '||' ('6613|Euprymna scolopes||312309|Aliivibrio fischeri ES114'), and
 # the NCBI rank / division / lineage columns and OpenTreeOfLifeTaxonomyID one value per organism in the same order;
 # so do IsolationSourceNCBITaxonomy (the organisms an isolate was isolated from) and its NCBI kingdom / phylum.
+# BioSampleAccession and BioSampleSequencing join a sample's several accessions / kinds of sequencing data the same way.
 # In these columns "is" / "is not" compare a value with the cell and with each of its organisms, the suggestions and
 # the overview count organisms, and a "contains" value with '||' is read as it is written.
 MULTI_SEP = '||'
@@ -82,7 +83,8 @@ COVERED_TAXA_HIDDEN = ['Environmental samples', 'Synthetic and Chimeric', 'Unass
 
 
 def _is_multi_value_column(col_name):
-    return str(col_name).startswith(('NCBI', 'IsolationSourceNCBI')) or col_name == 'OpenTreeOfLifeTaxonomyID'
+    return str(col_name).startswith(('NCBI', 'IsolationSourceNCBI')) or col_name in (
+        'OpenTreeOfLifeTaxonomyID', 'BioSampleAccession', 'BioSampleSequencing')
 
 
 def _cell_parts(cell):
